@@ -59,10 +59,12 @@ def cmd_models():
     config = load_config()
     llm = LLMClient(config)
     summary = llm.get_model_config_summary()
-    print(f"Default model: {summary['default_model']}\n")
-    print("Per-agent models:")
-    for agent, model in summary["agent_models"].items():
-        print(f"  {agent:20s} -> {model}")
+    print(f"Default model:  {summary['default_model']}")
+    print(f"Global fallback: {summary['global_fallback']}\n")
+    print(f"{'Agent':<20} {'Primary Model':<50} {'Fallback'}")
+    print(f"{'─'*20} {'─'*50} {'─'*40}")
+    for agent, info in summary["agents"].items():
+        print(f"{agent:<20} {info['primary']:<50} {info['fallback']}")
 
 
 def main():

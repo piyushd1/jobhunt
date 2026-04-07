@@ -58,11 +58,18 @@ class LLMClient:
         self.max_retries = llm_config.get("max_retries", 3)
         self.backoff_base = llm_config.get("backoff_base_s", 5)  # seconds
 
-        # Per-agent model overrides from config
+        # Per-agent model + fallback chains
+        # Config can be either a string (old format) or a dict with model + fallback
         self._agent_models: dict[str, str] = {}
-        for agent_name, model in llm_config.get("agents", {}).items():
-            if model:  # Skip empty strings
-                self._agent_models[agent_name] = model
+        self._agent_fallbacks: dict[str, str] = {}
+        for agent_name, agent_config in llm_config.get("agents", {}).items():
+            if isinstance(agent_config, dict):
+                if agent_config.get("model"):
+                    self._agent_models[agent_name] = agent_config["model"]
+                if agent_config.get("fallback"):
+                    self._agent_fallbacks[agent_name] = agent_config["fallback"]
+            elif isinstance(agent_config, str) and agent_config:
+                self._agent_models[agent_name] = agent_config
 
         _setup_provider_keys(llm_config)
 
@@ -73,8 +80,12 @@ class LLMClient:
         self._calls: list[dict] = []
 
     def model_for(self, agent: str) -> str:
-        """Get the model configured for a specific agent, or the default."""
+        """Get the primary model configured for a specific agent, or the default."""
         return self._agent_models.get(agent, self.default_model)
+
+    def fallback_for(self, agent: str) -> str:
+        """Get the fallback model for an agent, or the global fallback."""
+        return self._agent_fallbacks.get(agent, self.fallback_model)
 
     async def complete(
         self,
@@ -102,9 +113,12 @@ class LLMClient:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        # Try primary model with backoff, then fallback
+        # Try primary model with backoff, then per-agent fallback, then global fallback
         models_to_try = [resolved_model]
-        if self.fallback_model and self.fallback_model != resolved_model:
+        agent_fb = self.fallback_for(agent) if agent else self.fallback_model
+        if agent_fb and agent_fb != resolved_model:
+            models_to_try.append(agent_fb)
+        if self.fallback_model and self.fallback_model not in models_to_try:
             models_to_try.append(self.fallback_model)
 
         last_error = None
@@ -203,12 +217,19 @@ class LLMClient:
     def get_model_config_summary(self) -> dict:
         """Show which model each agent will use — useful for setup/debugging."""
         all_agents = ["resume_profiler", "parsing", "matching", "leadgen", "messaging"]
+        agent_configs = {}
+        for agent in all_agents:
+            primary = self.model_for(agent)
+            fallback = self.fallback_for(agent)
+            is_default = agent not in self._agent_models
+            agent_configs[agent] = {
+                "primary": f"{primary}{' (default)' if is_default else ''}",
+                "fallback": fallback or "(none)",
+            }
         return {
             "default_model": self.default_model,
-            "agent_models": {
-                agent: self._agent_models.get(agent, f"{self.default_model} (default)")
-                for agent in all_agents
-            },
+            "global_fallback": self.fallback_model,
+            "agents": agent_configs,
         }
 
     def reset_usage(self) -> None:

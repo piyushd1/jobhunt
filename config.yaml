@@ -3,38 +3,57 @@
 
 llm:
   # ── Model format: "provider/model-name" (litellm convention) ──
-  # Groq:       groq/llama-3.1-8b-instant, groq/llama-3.3-70b-versatile
-  # OpenRouter: openrouter/google/gemini-2.0-flash, openrouter/meta-llama/llama-3.1-70b-instruct
-  # OpenAI:     gpt-4o-mini, gpt-4o
-  # Anthropic:  claude-3-haiku-20240307, claude-3-5-sonnet-20241022
-  # Google:     gemini/gemini-1.5-flash
+  #
+  # Thinking models (complex reasoning):
+  #   openrouter/deepseek/deepseek-r1              ~$0.55/M tokens
+  #   openrouter/qwen/qwen3-235b-a22b              ~$0.30/M tokens
+  #   openrouter/deepseek/deepseek-chat-v3-0324    ~$0.27/M tokens (DeepSeek V3.2)
+  #
+  # Mid-tier (good quality, affordable):
+  #   openrouter/qwen/qwen3.6-plus:free            Free but rate-limited
+  #   openrouter/anthropic/claude-3.5-haiku         ~$0.80/M in, $4/M out
+  #
+  # Speed models (fast + cheap, for bulk work):
+  #   groq/llama-3.3-70b-versatile                 Free tier, blazing fast via Groq LPU
+  #   groq/llama-3.1-8b-instant                    Free tier, fastest
+  #   openrouter/google/gemini-2.0-flash-exp:free  Free, good for extraction
 
-  # Default model — used when an agent doesn't specify its own
-  default_model: "openrouter/qwen/qwen3.6-plus:free"
-  # Fallback model — used when primary hits rate limits after all retries
+  # ── Global defaults ──
+  default_model: "groq/llama-3.3-70b-versatile"
   fallback_model: "openrouter/google/gemini-2.0-flash-exp:free"
   temperature: 0.3
-  max_retries: 3                     # Retries per model before switching to fallback
-  backoff_base_s: 5                  # Base delay for exponential backoff (5s, 15s, 45s)
-  delay_between_calls_s: 3          # Pause between consecutive LLM calls to avoid rate limits
+  max_retries: 3
+  backoff_base_s: 5
+  delay_between_calls_s: 2          # Pause between consecutive LLM calls
 
-  # Per-agent model overrides — experiment freely, leave blank to use default
+  # ── Per-agent model selection ──
+  # Each agent has a primary model + fallback. Blank = use default.
+  #
+  # Philosophy:
+  #   - Thinking models for tasks needing reasoning (profiler, matching)
+  #   - Speed models for bulk extraction (parsing, leadgen)
+  #   - Mid-tier for writing quality (messaging)
   agents:
-    resume_profiler: ""            # One-time, can use a capable model
-    parsing: ""                    # Needs good structured extraction
-    matching: ""                   # Core scoring — benefits from stronger model
-    leadgen: ""                    # Light usage
-    messaging: ""                  # Drafting — tone matters, try different models
+    resume_profiler:
+      model: "openrouter/deepseek/deepseek-chat-v3-0324"   # Strong reasoning, runs once
+      fallback: "openrouter/qwen/qwen3.6-plus:free"
+    parsing:
+      model: "groq/llama-3.3-70b-versatile"                # Fast JSON extraction, 40+ calls
+      fallback: "openrouter/google/gemini-2.0-flash-exp:free"
+    matching:
+      model: "openrouter/deepseek/deepseek-chat-v3-0324"   # Best reasoning for scoring
+      fallback: "openrouter/qwen/qwen3.6-plus:free"
+    leadgen:
+      model: "groq/llama-3.1-8b-instant"                   # Simple queries, fastest
+      fallback: "groq/llama-3.3-70b-versatile"
+    messaging:
+      model: "openrouter/qwen/qwen3.6-plus:free"           # Good writing quality
+      fallback: "groq/llama-3.3-70b-versatile"
 
   # Embedding model for resume RAG (ChromaDB)
-  # Options:
-  #   local: uses sentence-transformers (free, runs on CPU, no API needed)
-  #   openai: uses text-embedding-3-small via OpenAI API
-  #   groq: not supported yet
   embedding:
-    provider: "local"              # "local" or "openai"
-    model: "all-MiniLM-L6-v2"     # For local: sentence-transformers model name
-    # model: "text-embedding-3-small"  # For openai
+    provider: "local"              # "local" = free, no API needed
+    model: "all-MiniLM-L6-v2"     # 384-dim, runs on CPU
 
 browser:
   profile_dir: "./data/browser_profile"
