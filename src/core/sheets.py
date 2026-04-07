@@ -19,7 +19,7 @@ SCOPES = [
 # Column headers for the Jobs sheet
 JOBS_HEADERS = [
     "Job ID", "Date Found", "Source(s)", "Title", "Company", "Location",
-    "Remote", "Experience", "JD Summary", "Portal Links", "Apply Link",
+    "Remote", "Experience", "Portal Links", "Apply Link",
     "Match %", "Skill Score", "Exp Score", "Location Score",
     "Matched Skills", "Missing Skills", "Match Summary",
     "Contact 1 Name", "Contact 1 Title", "Contact 1 LinkedIn",
@@ -87,7 +87,6 @@ class SheetsWriter:
                 job.get("location", ""),
                 job.get("remote", ""),
                 job.get("experience_required", ""),
-                _truncate(job.get("jd_summary", "") or job.get("full_description", ""), 500),
                 portal_links,
                 job.get("apply_url", ""),
                 job.get("match_score", ""),

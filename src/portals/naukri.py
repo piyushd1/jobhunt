@@ -26,31 +26,32 @@ class NaukriAdapter(PortalAdapter):
 
     async def scrape(self, page: Page) -> list[RawJob]:
         keywords = self.search_config.get("keywords", [])
-        location = self.search_config.get("location", "India")
+        locations = self.get_locations()
         experience = self.search_config.get("experience_years", 5)
         jobs: list[RawJob] = []
 
-        for keyword in keywords:
-            if len(jobs) >= self.max_results:
-                break
+        for location in locations:
+            for keyword in keywords:
+                if len(jobs) >= self.max_results:
+                    break
 
-            url = self._build_search_url(keyword, location, experience)
-            logger.info("naukri_searching", keyword=keyword, location=location)
+                url = self._build_search_url(keyword, location, experience)
+                logger.info("naukri_searching", keyword=keyword, location=location)
 
-            try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                await human_delay(2, 4)
-                await random_scroll(page, scrolls=2)
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    await human_delay(2, 4)
+                    await random_scroll(page, scrolls=2)
 
-                page_jobs = await self._extract_jobs(page)
-                jobs.extend(page_jobs)
-                logger.info("naukri_keyword_done", keyword=keyword, found=len(page_jobs))
+                    page_jobs = await self._extract_jobs(page)
+                    jobs.extend(page_jobs)
+                    logger.info("naukri_keyword_done", keyword=keyword, location=location, found=len(page_jobs))
 
-            except Exception as e:
-                logger.warning("naukri_search_failed", keyword=keyword, error=str(e))
-                continue
+                except Exception as e:
+                    logger.warning("naukri_search_failed", keyword=keyword, location=location, error=str(e))
+                    continue
 
-            await human_delay(3, 5)
+                await human_delay(3, 5)
 
         seen_urls = set()
         unique_jobs = []

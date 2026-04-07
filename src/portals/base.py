@@ -45,6 +45,15 @@ class PortalAdapter(ABC):
         self.search_config = config.get("search", {})
         self.max_results = self.search_config.get("max_results_per_portal", 25)
 
+    def get_locations(self) -> list[str]:
+        """Get search locations from config. Supports both single and multi-location."""
+        locations = self.search_config.get("locations", [])
+        if locations:
+            return locations
+        # Backward compat: single location string
+        single = self.search_config.get("location", "India")
+        return [single] if single else ["India"]
+
     @abstractmethod
     async def scrape(self, page: Page) -> list[RawJob]:
         """Scrape the portal for job listings. Returns list of RawJob."""

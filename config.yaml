@@ -16,11 +16,11 @@ llm:
   # Speed models (fast + cheap, for bulk work):
   #   groq/llama-3.3-70b-versatile                 Free tier, blazing fast via Groq LPU
   #   groq/llama-3.1-8b-instant                    Free tier, fastest
-  #   openrouter/google/gemini-2.0-flash-exp:free  Free, good for extraction
+  #   openrouter/free                               Auto-routes to a working free model
 
   # ── Global defaults ──
-  default_model: "openrouter/google/gemini-2.0-flash-exp:free"
-  fallback_model: "openrouter/qwen/qwen3.6-plus:free"
+  default_model: "openrouter/qwen/qwen3.6-plus:free"
+  fallback_model: "openrouter/free"
   temperature: 0.3
   max_retries: 3
   backoff_base_s: 5
@@ -28,27 +28,22 @@ llm:
 
   # ── Per-agent model selection ──
   # All OpenRouter — add Groq models when you have the API key.
-  #
-  # Philosophy:
-  #   - Thinking models for tasks needing reasoning (profiler, matching)
-  #   - Fast/free models for bulk extraction (parsing, leadgen)
-  #   - Mid-tier for writing quality (messaging)
   agents:
     resume_profiler:
       model: "openrouter/deepseek/deepseek-chat-v3-0324"   # Strong reasoning, runs once
       fallback: "openrouter/qwen/qwen3.6-plus:free"
     parsing:
-      model: "openrouter/google/gemini-2.0-flash-exp:free"  # Fast extraction, 40+ calls
-      fallback: "openrouter/qwen/qwen3.6-plus:free"
+      model: "openrouter/qwen/qwen3.6-plus:free"           # Structured extraction, 40+ calls
+      fallback: "openrouter/free"
     matching:
       model: "openrouter/deepseek/deepseek-chat-v3-0324"   # Best reasoning for scoring
       fallback: "openrouter/qwen/qwen3.6-plus:free"
     leadgen:
-      model: "openrouter/google/gemini-2.0-flash-exp:free"  # Simple queries
-      fallback: "openrouter/qwen/qwen3.6-plus:free"
+      model: "openrouter/qwen/qwen3.6-plus:free"
+      fallback: "openrouter/free"
     messaging:
       model: "openrouter/qwen/qwen3.6-plus:free"           # Good writing quality
-      fallback: "openrouter/google/gemini-2.0-flash-exp:free"
+      fallback: "openrouter/free"
 
   # Embedding model for resume RAG (ChromaDB)
   embedding:
@@ -69,7 +64,10 @@ search:
     - "Project Manager"
     - "Program Manager"
     - "Product Owner"
-  location: "India"
+  locations:                         # Searched in order of preference
+    - "Bangalore"
+    - "Hyderabad"
+    - "Gurugram"
   remote_ok: true
   experience_years: 5
   max_results_per_portal: 25

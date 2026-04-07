@@ -27,30 +27,31 @@ class LinkedInAdapter(PortalAdapter):
 
     async def scrape(self, page: Page) -> list[RawJob]:
         keywords = self.search_config.get("keywords", [])
-        location = self.search_config.get("location", "India")
+        locations = self.get_locations()
         jobs: list[RawJob] = []
 
-        for keyword in keywords:
-            if len(jobs) >= self.max_results:
-                break
+        for location in locations:
+            for keyword in keywords:
+                if len(jobs) >= self.max_results:
+                    break
 
-            url = self._build_search_url(keyword, location)
-            logger.info("linkedin_searching", keyword=keyword, location=location)
+                url = self._build_search_url(keyword, location)
+                logger.info("linkedin_searching", keyword=keyword, location=location)
 
-            try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                await human_delay(2, 4)
-                await random_scroll(page, scrolls=3)
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    await human_delay(2, 4)
+                    await random_scroll(page, scrolls=3)
 
-                page_jobs = await self._extract_jobs(page, keyword)
-                jobs.extend(page_jobs)
-                logger.info("linkedin_keyword_done", keyword=keyword, found=len(page_jobs))
+                    page_jobs = await self._extract_jobs(page, keyword)
+                    jobs.extend(page_jobs)
+                    logger.info("linkedin_keyword_done", keyword=keyword, location=location, found=len(page_jobs))
 
-            except Exception as e:
-                logger.warning("linkedin_search_failed", keyword=keyword, error=str(e))
-                continue
+                except Exception as e:
+                    logger.warning("linkedin_search_failed", keyword=keyword, location=location, error=str(e))
+                    continue
 
-            await human_delay(3, 6)
+                await human_delay(3, 6)
 
         # Deduplicate by URL
         seen_urls = set()
