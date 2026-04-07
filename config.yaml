@@ -19,36 +19,36 @@ llm:
   #   openrouter/google/gemini-2.0-flash-exp:free  Free, good for extraction
 
   # ── Global defaults ──
-  default_model: "groq/llama-3.3-70b-versatile"
-  fallback_model: "openrouter/google/gemini-2.0-flash-exp:free"
+  default_model: "openrouter/google/gemini-2.0-flash-exp:free"
+  fallback_model: "openrouter/qwen/qwen3.6-plus:free"
   temperature: 0.3
   max_retries: 3
   backoff_base_s: 5
   delay_between_calls_s: 2          # Pause between consecutive LLM calls
 
   # ── Per-agent model selection ──
-  # Each agent has a primary model + fallback. Blank = use default.
+  # All OpenRouter — add Groq models when you have the API key.
   #
   # Philosophy:
   #   - Thinking models for tasks needing reasoning (profiler, matching)
-  #   - Speed models for bulk extraction (parsing, leadgen)
+  #   - Fast/free models for bulk extraction (parsing, leadgen)
   #   - Mid-tier for writing quality (messaging)
   agents:
     resume_profiler:
       model: "openrouter/deepseek/deepseek-chat-v3-0324"   # Strong reasoning, runs once
       fallback: "openrouter/qwen/qwen3.6-plus:free"
     parsing:
-      model: "groq/llama-3.3-70b-versatile"                # Fast JSON extraction, 40+ calls
-      fallback: "openrouter/google/gemini-2.0-flash-exp:free"
+      model: "openrouter/google/gemini-2.0-flash-exp:free"  # Fast extraction, 40+ calls
+      fallback: "openrouter/qwen/qwen3.6-plus:free"
     matching:
       model: "openrouter/deepseek/deepseek-chat-v3-0324"   # Best reasoning for scoring
       fallback: "openrouter/qwen/qwen3.6-plus:free"
     leadgen:
-      model: "groq/llama-3.1-8b-instant"                   # Simple queries, fastest
-      fallback: "groq/llama-3.3-70b-versatile"
+      model: "openrouter/google/gemini-2.0-flash-exp:free"  # Simple queries
+      fallback: "openrouter/qwen/qwen3.6-plus:free"
     messaging:
       model: "openrouter/qwen/qwen3.6-plus:free"           # Good writing quality
-      fallback: "groq/llama-3.3-70b-versatile"
+      fallback: "openrouter/google/gemini-2.0-flash-exp:free"
 
   # Embedding model for resume RAG (ChromaDB)
   embedding:

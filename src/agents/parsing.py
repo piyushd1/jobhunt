@@ -174,11 +174,14 @@ class ParsingAgent(BaseAgent):
             )
         except Exception as e:
             logger.warning("parsing_llm_failed", url=url, error=str(e))
-            # Fall back to raw text storage
-            return {
+            # Fall back to raw text storage — still save apply link + JD
+            fallback = {
                 "full_description": jd_text[:5000],
                 "jd_summary": jd_text[:300],
             }
+            if apply_url:
+                fallback["apply_url"] = apply_url
+            return fallback
 
         # Build update fields
         updates = {
