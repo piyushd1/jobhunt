@@ -26,8 +26,21 @@ console = Console()
 
 def cmd_hunt():
     """Run the full sourcing pipeline."""
+    import warnings
     from src.orchestrator import run_pipeline
-    asyncio.run(run_pipeline())
+
+    # Suppress the Python 3.9 SSL/asyncio cleanup errors on exit
+    # These are cosmetic — the pipeline completes fine, but asyncio
+    # complains about SSL sockets during event loop teardown
+    warnings.filterwarnings("ignore", message=".*Event loop is closed.*")
+
+    try:
+        asyncio.run(run_pipeline())
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Pipeline interrupted by user.[/]")
+    except RuntimeError as e:
+        if "Event loop is closed" not in str(e):
+            raise
 
 
 def cmd_setup():

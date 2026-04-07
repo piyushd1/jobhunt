@@ -1,6 +1,7 @@
 """Playwright browser context manager with anti-detection and persistent sessions."""
 
 import asyncio
+import os
 import random
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,15 +17,38 @@ logger = structlog.get_logger()
 BLOCKED_ACTIONS = {"send", "apply", "submit", "connect", "post", "confirm"}
 
 
+def _clean_stale_locks(profile_dir: str) -> None:
+    """Remove stale browser lock files from a previous crashed session.
+
+    Chromium creates SingletonLock, SingletonCookie, SingletonSocket files.
+    If the browser didn't close cleanly, these prevent the next launch.
+    """
+    lock_files = ["SingletonLock", "SingletonCookie", "SingletonSocket"]
+    for name in lock_files:
+        lock_path = Path(profile_dir) / name
+        if lock_path.exists() or lock_path.is_symlink():
+            try:
+                lock_path.unlink()
+                logger.info("stale_lock_removed", file=name)
+            except OSError:
+                pass
+
+
 @asynccontextmanager
 async def browser_context(config: dict) -> AsyncGenerator[BrowserContext, None]:
-    """Launch a persistent Playwright browser context with anti-detection flags."""
+    """Launch a persistent Playwright browser context with anti-detection flags.
+
+    Automatically cleans stale lock files from crashed previous sessions.
+    """
     browser_config = config.get("browser", {})
     profile_dir = str(Path(browser_config.get("profile_dir", "./data/browser_profile")).resolve())
     headless = browser_config.get("headless", False)
     slow_mo = browser_config.get("slow_mo", 800)
 
     Path(profile_dir).mkdir(parents=True, exist_ok=True)
+
+    # Clean stale locks from previous crashed runs
+    _clean_stale_locks(profile_dir)
 
     async with async_playwright() as pw:
         ctx = await pw.chromium.launch_persistent_context(
@@ -42,7 +66,10 @@ async def browser_context(config: dict) -> AsyncGenerator[BrowserContext, None]:
         try:
             yield ctx
         finally:
-            await ctx.close()
+            try:
+                await ctx.close()
+            except Exception:
+                pass  # Don't fail on close errors
             logger.info("browser_context_closed")
 
 
