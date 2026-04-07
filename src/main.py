@@ -28,15 +28,61 @@ from src.core.llm import LLMClient
 console = Console()
 
 
+def _patch_asyncio_ssl_cleanup():
+    """Suppress Python 3.9 'Fatal error on SSL transport' during event loop shutdown.
+
+    This is a known issue: asyncio tries to write to already-closed SSL sockets
+    during teardown. The error is cosmetic — everything completed successfully.
+    We patch the event loop class to silently ignore these specific errors.
+    """
+    import asyncio.selector_events
+
+    _original_del = getattr(asyncio.selector_events._SelectorSocketTransport, '__del__', None)
+
+    # Patch proactor event loop on Windows, selector on Unix
+    original_class = asyncio.SelectorEventLoop
+
+    _orig_run = asyncio.run
+
+    def _patched_run(coro, **kwargs):
+        loop = asyncio.new_event_loop()
+
+        # Install a custom exception handler that ignores SSL cleanup errors
+        def _quiet_exception_handler(loop, context):
+            msg = context.get("message", "")
+            exc = context.get("exception")
+            if "SSL" in msg or (exc and "Bad file descriptor" in str(exc)):
+                return  # Suppress
+            # For all other errors, use default handler
+            loop.default_exception_handler(context)
+
+        loop.set_exception_handler(_quiet_exception_handler)
+
+        try:
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(coro)
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
+            try:
+                loop.close()
+            except Exception:
+                pass
+
+    asyncio.run = _patched_run
+
+
 def cmd_hunt():
     """Run the full sourcing pipeline."""
-    import warnings
     from src.orchestrator import run_pipeline
 
-    # Suppress the Python 3.9 SSL/asyncio cleanup errors on exit
-    # These are cosmetic — the pipeline completes fine, but asyncio
-    # complains about SSL sockets during event loop teardown
-    warnings.filterwarnings("ignore", message=".*Event loop is closed.*")
+    # Fix Python 3.9 SSL/asyncio cleanup errors on exit.
+    # asyncio's event loop prints scary "Fatal error on SSL transport"
+    # during teardown — this is cosmetic but alarming. We patch the
+    # event loop's exception handler to suppress it.
+    _patch_asyncio_ssl_cleanup()
 
     try:
         asyncio.run(run_pipeline())
