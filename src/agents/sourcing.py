@@ -68,11 +68,39 @@ class SourcingAgent(BaseAgent):
                 errors.append(f"{portal_name}: {str(e)}")
                 logger.error("sourcing_portal_error", portal=portal_name, error=str(e))
 
+        # Apply blacklist filter
+        blacklist_config = self.config.get("blacklist", {})
+        blocked_companies = set(c.lower() for c in blacklist_config.get("companies", []))
+        blocked_keywords = set(k.lower() for k in blacklist_config.get("title_keywords", []))
+
+        # Also load blacklist from DB
+        for bl in self.db.get_blacklist():
+            if bl["type"] == "company":
+                blocked_companies.add(bl["value"].lower())
+            elif bl["type"] == "title_keyword":
+                blocked_keywords.add(bl["value"].lower())
+
+        filtered_jobs = []
+        blocked_count = 0
+        for job in all_jobs:
+            company_lower = (job.company or "").lower()
+            title_lower = (job.title or "").lower()
+            if any(bc in company_lower for bc in blocked_companies if bc):
+                blocked_count += 1
+                continue
+            if any(bk in title_lower for bk in blocked_keywords if bk):
+                blocked_count += 1
+                continue
+            filtered_jobs.append(job)
+
+        if blocked_count:
+            logger.info("sourcing_blacklist_filtered", blocked=blocked_count)
+
         # Deduplicate and write to DB
         new_count = 0
         merged_count = 0
 
-        for raw_job in all_jobs:
+        for raw_job in filtered_jobs:
             fp = raw_job.fingerprint
 
             if self.db.job_exists(fp):

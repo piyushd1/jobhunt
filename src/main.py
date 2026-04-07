@@ -1,12 +1,16 @@
 """CLI entry point for the Job Hunt Agent.
 
 Usage:
-    python -m src hunt           # Run the full pipeline
-    python -m src setup          # Open browser for portal logins
-    python -m src status         # Show job counts in DB
-    python -m src models         # Show configured LLM models per agent
-    python -m src metrics        # Show agent performance from last run
-    python -m src metrics all    # Show all historical runs
+    python -m src hunt                          # Run the full pipeline
+    python -m src setup                         # Open browser for portal logins
+    python -m src status                        # Show job counts in DB
+    python -m src models                        # Show configured LLM models per agent
+    python -m src metrics                       # Show agent performance from last run
+    python -m src metrics all                   # Show all historical runs
+    python -m src blacklist add company Acme    # Block a company
+    python -m src blacklist add keyword intern  # Block a title keyword
+    python -m src blacklist show                # Show all blacklist entries
+    python -m src blacklist remove <id>         # Remove a blacklist entry
 """
 
 import asyncio
@@ -236,6 +240,65 @@ def _short_model(model: str) -> str:
     return parts[-1] if len(parts) > 1 else model
 
 
+def cmd_blacklist():
+    """Manage company and keyword blacklists."""
+    config = load_config()
+    db = Database(config.get("output", {}).get("db_path", "./data/job_hunt.db"))
+
+    if len(sys.argv) < 3:
+        console.print("[yellow]Usage: python -m src blacklist <show|add|remove>[/]")
+        db.close()
+        return
+
+    subcmd = sys.argv[2].lower()
+
+    if subcmd == "show":
+        entries = db.get_blacklist()
+        config_bl = config.get("blacklist", {})
+        table = Table(title="Blacklist", border_style="red")
+        table.add_column("ID", style="dim")
+        table.add_column("Type", style="cyan")
+        table.add_column("Value", style="white")
+        table.add_column("Source", style="dim")
+
+        for e in entries:
+            table.add_row(e["id"][:8], e["type"], e["value"], "database")
+        for c in config_bl.get("companies", []):
+            table.add_row("—", "company", c, "config.yaml")
+        for k in config_bl.get("title_keywords", []):
+            table.add_row("—", "title_keyword", k, "config.yaml")
+
+        console.print(table)
+
+    elif subcmd == "add":
+        if len(sys.argv) < 5:
+            console.print("[yellow]Usage: python -m src blacklist add <company|keyword> <value>[/]")
+            db.close()
+            return
+        bl_type = sys.argv[3].lower()
+        value = " ".join(sys.argv[4:])
+        if bl_type in ("company", "keyword", "title_keyword"):
+            bl_type = "company" if bl_type == "company" else "title_keyword"
+            import uuid
+            bl_id = str(uuid.uuid4())[:8]
+            db.add_to_blacklist(bl_id, bl_type, value)
+            console.print(f"[green]Added to blacklist: {bl_type} = \"{value}\"[/]")
+        else:
+            console.print(f"[red]Unknown type: {bl_type}. Use 'company' or 'keyword'.[/]")
+
+    elif subcmd == "remove":
+        if len(sys.argv) < 4:
+            console.print("[yellow]Usage: python -m src blacklist remove <id>[/]")
+            db.close()
+            return
+        bl_id = sys.argv[3]
+        db.conn.execute("DELETE FROM blacklist WHERE id LIKE ?", (f"{bl_id}%",))
+        db.conn.commit()
+        console.print(f"[green]Removed blacklist entry: {bl_id}[/]")
+
+    db.close()
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -244,6 +307,7 @@ def main():
     command = sys.argv[1].lower()
     commands = {
         "hunt": cmd_hunt,
+        "blacklist": cmd_blacklist,
         "setup": cmd_setup,
         "status": cmd_status,
         "models": cmd_models,
