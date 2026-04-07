@@ -1,5 +1,6 @@
 """LLM abstraction layer using litellm — supports OpenRouter, Groq, OpenAI, Anthropic, Google."""
 
+import asyncio
 import json
 import os
 from typing import Any, Optional
@@ -52,8 +53,10 @@ class LLMClient:
     def __init__(self, config: dict):
         llm_config = config.get("llm", {})
         self.default_model = llm_config.get("default_model", "groq/llama-3.1-8b-instant")
+        self.fallback_model = llm_config.get("fallback_model", "")
         self.temperature = llm_config.get("temperature", 0.3)
-        self.max_retries = llm_config.get("max_retries", 2)
+        self.max_retries = llm_config.get("max_retries", 3)
+        self.backoff_base = llm_config.get("backoff_base_s", 5)  # seconds
 
         # Per-agent model overrides from config
         self._agent_models: dict[str, str] = {}
@@ -82,12 +85,15 @@ class LLMClient:
         temperature: Optional[float] = None,
         json_mode: bool = False,
     ) -> str:
-        """Send a completion request and return the response text.
+        """Send a completion request with exponential backoff and fallback model.
 
         Model resolution order:
           1. Explicit `model` param (for one-off overrides)
           2. Per-agent model from config (via `agent` param)
           3. default_model from config
+
+        On rate limit errors: retries with exponential backoff (5s, 15s, 45s),
+        then falls back to fallback_model if configured.
         """
         resolved_model = model or (self.model_for(agent) if agent else self.default_model)
 
@@ -96,49 +102,74 @@ class LLMClient:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        kwargs: dict[str, Any] = {
-            "model": resolved_model,
-            "messages": messages,
-            "temperature": temperature if temperature is not None else self.temperature,
-            "num_retries": self.max_retries,
-        }
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
+        # Try primary model with backoff, then fallback
+        models_to_try = [resolved_model]
+        if self.fallback_model and self.fallback_model != resolved_model:
+            models_to_try.append(self.fallback_model)
 
-        try:
-            response = await litellm.acompletion(**kwargs)
-            content = response.choices[0].message.content or ""
+        last_error = None
+        for try_model in models_to_try:
+            for attempt in range(self.max_retries + 1):
+                kwargs: dict[str, Any] = {
+                    "model": try_model,
+                    "messages": messages,
+                    "temperature": temperature if temperature is not None else self.temperature,
+                }
+                if json_mode:
+                    kwargs["response_format"] = {"type": "json_object"}
 
-            # Track usage
-            usage = response.usage
-            if usage:
-                input_tokens = usage.prompt_tokens or 0
-                output_tokens = usage.completion_tokens or 0
-                self._total_input_tokens += input_tokens
-                self._total_output_tokens += output_tokens
-
-                # Estimate cost (some providers may not have pricing data)
                 try:
-                    cost = litellm.completion_cost(completion_response=response)
-                except Exception:
-                    cost = 0.0
-                self._total_cost += cost
+                    response = await litellm.acompletion(**kwargs)
+                    content = response.choices[0].message.content or ""
 
-                self._calls.append({
-                    "model": resolved_model,
-                    "agent": agent or "unknown",
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "cost_usd": cost,
-                })
+                    # Track usage
+                    usage = response.usage
+                    if usage:
+                        input_tokens = usage.prompt_tokens or 0
+                        output_tokens = usage.completion_tokens or 0
+                        self._total_input_tokens += input_tokens
+                        self._total_output_tokens += output_tokens
 
-            logger.debug("llm_completion", model=resolved_model, agent=agent,
-                         tokens=f"{usage.prompt_tokens}in/{usage.completion_tokens}out" if usage else "unknown")
-            return content
+                        try:
+                            cost = litellm.completion_cost(completion_response=response)
+                        except Exception:
+                            cost = 0.0
+                        self._total_cost += cost
 
-        except Exception as e:
-            logger.error("llm_completion_failed", model=resolved_model, agent=agent, error=str(e))
-            raise
+                        self._calls.append({
+                            "model": try_model,
+                            "agent": agent or "unknown",
+                            "input_tokens": input_tokens,
+                            "output_tokens": output_tokens,
+                            "cost_usd": cost,
+                        })
+
+                    logger.debug("llm_completion", model=try_model, agent=agent,
+                                 tokens=f"{usage.prompt_tokens}in/{usage.completion_tokens}out" if usage else "unknown")
+                    return content
+
+                except Exception as e:
+                    last_error = e
+                    error_str = str(e).lower()
+                    is_rate_limit = "rate" in error_str or "429" in error_str
+
+                    if is_rate_limit and attempt < self.max_retries:
+                        wait = self.backoff_base * (3 ** attempt)  # 5s, 15s, 45s
+                        logger.warning("llm_rate_limited", model=try_model, attempt=attempt + 1,
+                                       wait_s=wait)
+                        await asyncio.sleep(wait)
+                        continue
+                    elif is_rate_limit and try_model != models_to_try[-1]:
+                        logger.warning("llm_switching_to_fallback", from_model=try_model,
+                                       to_model=models_to_try[-1])
+                        break  # Try next model
+                    else:
+                        logger.error("llm_completion_failed", model=try_model, agent=agent,
+                                     error=str(e))
+                        if not is_rate_limit:
+                            raise
+
+        raise last_error
 
     async def complete_json(
         self,

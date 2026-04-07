@@ -9,6 +9,7 @@ For each job with parse_status='pending', visits the URL and extracts:
 Uses a 3-step fallback: site-specific selectors → generic extraction → LLM structuring.
 """
 
+import asyncio
 import json
 import re
 from typing import Any, Optional
@@ -105,6 +106,7 @@ class ParsingAgent(BaseAgent):
         self.db = db
         self.browser_ctx = browser_ctx
         self.llm = llm
+        self.delay_between_calls = config.get("llm", {}).get("delay_between_calls_s", 3)
 
     async def run(self, input_data: Any = None) -> AgentResult:
         """Parse all jobs with parse_status='pending'."""
@@ -118,12 +120,14 @@ class ParsingAgent(BaseAgent):
         parsed_count = 0
         errors: list[str] = []
 
-        for job in pending_jobs:
+        for i, job in enumerate(pending_jobs):
             try:
                 result = await self._parse_job(page, job)
                 if result:
                     self.db.update_job(job["id"], **result, parse_status="parsed")
                     parsed_count += 1
+                    logger.info("parsing_job_done", progress=f"{i+1}/{len(pending_jobs)}",
+                                title=job.get("title", "")[:50], company=job.get("company", ""))
                 else:
                     self.db.update_job(job["id"], parse_status="failed")
                     errors.append(f"No content: {job['url']}")
@@ -132,7 +136,9 @@ class ParsingAgent(BaseAgent):
                 errors.append(f"{job['url']}: {str(e)}")
                 logger.warning("parsing_job_failed", url=job["url"], error=str(e))
 
-            await human_delay(2, 4)
+            # Delay between jobs to avoid rate limits
+            await asyncio.sleep(self.delay_between_calls)
+            await human_delay(1, 2)
 
         await page.close()
         logger.info("parsing_complete", parsed=parsed_count, failed=len(errors))
@@ -156,8 +162,8 @@ class ParsingAgent(BaseAgent):
         if not jd_text or len(jd_text.strip()) < 50:
             return None
 
-        # 2. Extract apply link
-        apply_url = await self._extract_apply_link(page)
+        # 2. Extract apply link (external ATS / company career page)
+        apply_url = await self._extract_apply_link(page, url)
 
         # 3. Send to LLM for structuring
         try:
@@ -230,8 +236,16 @@ class ParsingAgent(BaseAgent):
 
         return ""
 
-    async def _extract_apply_link(self, page: Page) -> str:
-        """Extract external apply link (ATS/company career page)."""
+    async def _extract_apply_link(self, page: Page, job_url: str) -> str:
+        """Extract external apply link (ATS/company career page).
+
+        Strategy:
+        1. Look for direct ATS links in the page HTML
+        2. Look for LinkedIn/Naukri "Apply" buttons that link externally
+        3. Scan all page links for known ATS domains
+        4. Check if any link goes to a company careers page
+        """
+        # 1. Direct ATS link selectors
         for selector in APPLY_SELECTORS:
             try:
                 el = await page.query_selector(selector)
@@ -242,13 +256,62 @@ class ParsingAgent(BaseAgent):
             except Exception:
                 continue
 
-        # Fallback: scan all links for ATS domains
+        # 2. LinkedIn-specific: external apply button
+        if "linkedin.com" in job_url:
+            try:
+                # LinkedIn shows "Apply" for external jobs (not "Easy Apply")
+                apply_btn = await page.query_selector(
+                    "button.jobs-apply-button, a.jobs-apply-button, "
+                    "button[aria-label*='Apply'], a[aria-label*='Apply']"
+                )
+                if apply_btn:
+                    btn_text = (await apply_btn.inner_text()).strip().lower()
+                    # "Apply" (external) vs "Easy Apply" (internal)
+                    if "easy" not in btn_text:
+                        # Click to see where it goes — capture the popup/redirect URL
+                        try:
+                            async with page.expect_popup(timeout=5000) as popup_info:
+                                await apply_btn.click()
+                            popup = await popup_info.value
+                            external_url = popup.url
+                            await popup.close()
+                            if external_url and external_url != job_url:
+                                logger.info("apply_link_found_via_popup", url=external_url[:80])
+                                return external_url
+                        except Exception:
+                            pass  # No popup, might be a redirect
+            except Exception:
+                pass
+
+        # 3. Naukri-specific: apply button
+        if "naukri.com" in job_url:
+            try:
+                apply_btn = await page.query_selector(
+                    "a#apply-button, a.apply-btn, button#apply-button, "
+                    "a[class*='applyButton']"
+                )
+                if apply_btn:
+                    href = await apply_btn.get_attribute("href")
+                    if href and not href.startswith("javascript"):
+                        return href
+            except Exception:
+                pass
+
+        # 4. Scan all links for ATS domains or company career pages
         try:
             links = await page.query_selector_all("a[href]")
-            for link in links[:50]:  # Limit to avoid scanning entire page
+            for link in links[:80]:
                 href = await link.get_attribute("href")
-                if href and any(domain in href for domain in ATS_DOMAINS):
+                if not href:
+                    continue
+                # ATS domains
+                if any(domain in href for domain in ATS_DOMAINS):
                     return href
+                # Company career pages
+                if "/careers/" in href or "/jobs/" in href:
+                    link_text = (await link.inner_text()).strip().lower()
+                    if any(w in link_text for w in ["apply", "career", "position"]):
+                        return href
         except Exception:
             pass
 

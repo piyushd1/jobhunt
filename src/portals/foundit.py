@@ -64,27 +64,56 @@ class FounditAdapter(PortalAdapter):
         """Extract job cards from Foundit search results."""
         jobs = []
 
-        try:
-            # Foundit job cards
-            cards = await page.query_selector_all(
-                "div.card-apply-content, div.srpResultCardContainer, "
-                "div[class*='jobTuple'], div.job-card"
-            )
+        # Try multiple selector strategies
+        card_selectors = [
+            "div.card-apply-content",
+            "div.srpResultCardContainer",
+            "div[class*='jobTuple']",
+            "div.job-card",
+            "div[class*='JobCard']",
+            "div[class*='job-card']",
+            "div[data-job-id]",
+            "article[class*='job']",
+        ]
 
-            for card in cards:
-                try:
-                    job = await self._parse_card(card)
-                    if job:
-                        jobs.append(job)
-                except Exception:
-                    continue
+        cards = []
+        for sel in card_selectors:
+            try:
+                found = await page.query_selector_all(sel)
+                if found:
+                    cards = found
+                    logger.debug("foundit_selector_hit", selector=sel, count=len(found))
+                    break
+            except Exception:
+                continue
 
-        except Exception as e:
-            logger.warning("foundit_selector_failed", error=str(e))
+        for card in cards:
+            try:
+                job = await self._parse_card(card)
+                if job:
+                    jobs.append(job)
+            except Exception:
+                continue
 
-        # Fallback: regex URL extraction
+        # Fallback: extract ALL job-looking links from the page
         if not jobs:
-            logger.info("foundit_using_url_fallback")
+            logger.info("foundit_using_link_fallback")
+            try:
+                links = await page.query_selector_all("a[href*='/job/'], a[href*='/jobs/']")
+                seen = set()
+                for link in links:
+                    href = await link.get_attribute("href")
+                    text = (await link.inner_text()).strip()
+                    if href and text and len(text) > 3 and href not in seen:
+                        seen.add(href)
+                        full_url = href if href.startswith("http") else f"https://www.foundit.in{href}"
+                        jobs.append(RawJob(url=full_url, title=text, source="Foundit"))
+            except Exception as e:
+                logger.warning("foundit_link_fallback_failed", error=str(e))
+
+        # Final fallback: regex URL extraction from raw HTML
+        if not jobs:
+            logger.info("foundit_using_url_regex_fallback")
             content = await page.content()
             urls = self._extract_job_urls(content)
             for url in urls:
@@ -94,11 +123,15 @@ class FounditAdapter(PortalAdapter):
 
     async def _parse_card(self, card) -> Optional[RawJob]:
         """Parse a single Foundit job card."""
-        # Title + URL
-        title_el = await card.query_selector(
-            "a.card-job-detail, a[class*='jobTitle'], "
-            "a.JobTitle, h3 a, a[class*='job-title']"
-        )
+        # Title + URL — try many selectors
+        title_el = None
+        for sel in ["a.card-job-detail", "a[class*='jobTitle']", "a.JobTitle",
+                     "h3 a", "a[class*='job-title']", "a[class*='JobTitle']",
+                     "a[href*='/job/']"]:
+            title_el = await card.query_selector(sel)
+            if title_el:
+                break
+
         title = ""
         url = ""
         if title_el:

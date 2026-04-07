@@ -10,9 +10,13 @@ llm:
   # Google:     gemini/gemini-1.5-flash
 
   # Default model — used when an agent doesn't specify its own
-  default_model: "groq/llama-3.1-8b-instant"
+  default_model: "openrouter/qwen/qwen3.6-plus:free"
+  # Fallback model — used when primary hits rate limits after all retries
+  fallback_model: "openrouter/google/gemini-2.0-flash-exp:free"
   temperature: 0.3
-  max_retries: 2
+  max_retries: 3                     # Retries per model before switching to fallback
+  backoff_base_s: 5                  # Base delay for exponential backoff (5s, 15s, 45s)
+  delay_between_calls_s: 3          # Pause between consecutive LLM calls to avoid rate limits
 
   # Per-agent model overrides — experiment freely, leave blank to use default
   agents:

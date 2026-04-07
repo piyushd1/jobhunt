@@ -53,20 +53,23 @@ ResumeProfiler → SourcingAgent → ParsingAgent → MatchingAgent → LeadGenA
 
 ## Current State
 
-### Completed (Phase 1, Batch 1)
+### Completed (Phase 1 — ALL)
 - [x] Step 1.1: Project scaffold (git, pyproject.toml, .gitignore, config.yaml, directories)
 - [x] Step 1.2: Core infrastructure (config.py, browser.py, db.py, sheets.py, llm.py, logger.py, metrics.py)
 - [x] Step 1.3: Browser setup helper (setup_browser.py) — user has logged into all portals
+- [x] Step 1.4: Resume profiler agent (with PM skill taxonomy + embedding canonicalization)
+- [x] Step 1.5: Portal adapter base + 3 adapters (LinkedIn, Naukri, Foundit)
+- [x] Step 1.6: Sourcing agent
+- [x] Step 1.7: Parsing agent
+- [x] Step 1.8: Orchestrator + CLI
+- [x] Step 1.9: Google Sheets output
 
-### Next Up (Phase 1, Batch 2)
-- [ ] Step 1.4: Resume profiler agent
-- [ ] Step 1.5: Portal adapter base + 3 adapters (LinkedIn, Naukri, Foundit)
-- [ ] Step 1.6: Sourcing agent
-
-### Remaining (Phase 1, Batch 3)
-- [ ] Step 1.7: Parsing agent
-- [ ] Step 1.8: Orchestrator + CLI
-- [ ] Step 1.9: Google Sheets output
+### Next Up (Phase 2)
+- [ ] Step 2.1: ChromaDB vector store for resume RAG
+- [ ] Step 2.2: Matching agent (hybrid scoring)
+- [ ] Step 2.3: Remaining 5 portal adapters
+- [ ] Step 2.4: Enhanced Google Sheets with scores
+- [ ] Step 2.5: Blacklist support
 
 ## File Structure
 
