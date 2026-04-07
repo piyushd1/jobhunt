@@ -1,5 +1,6 @@
-"""Pipeline orchestrator — runs agents sequentially with metrics tracking."""
+"""Pipeline orchestrator — runs agents sequentially with live progress and metrics."""
 
+import sys
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -18,8 +19,12 @@ from src.core.llm import LLMClient
 from src.core.sheets import SheetsWriter
 from src.eval.logger import setup_logging
 from src.eval.metrics import MetricsCollector
+from src.eval.progress import PipelineProgress, print_summary
 
 logger = structlog.get_logger()
+
+# Force unbuffered output so logs appear in real-time
+sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
 
 
 async def run_pipeline(config: Optional[dict] = None) -> dict:
@@ -36,6 +41,10 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
     started_at = datetime.utcnow().isoformat()
     metrics = MetricsCollector()
     metrics.start_run()
+
+    # Live progress display
+    progress = PipelineProgress()
+    progress.start(run_id)
 
     logger.info("pipeline_start", run_id=run_id)
 
@@ -57,7 +66,8 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
     }
 
     try:
-        # Step 1: Resume profiler (one-time, cached)
+        # ── Step 1: Resume profiler (one-time, cached) ──
+        progress.start_stage("Resume Profile", total=1)
         with metrics.track_agent("resume_profiler", items_in=1) as m:
             profiler = ResumeProfiler(config, llm, embedding_model=emb)
             profile_result = await profiler.run()
@@ -65,29 +75,105 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
             if profile_result.errors:
                 m.errors.extend(profile_result.errors)
 
-        if not profile_result.success:
-            logger.warning("resume_profile_failed", errors=profile_result.errors)
-            # Continue without profile — sourcing doesn't need it
+        if profile_result.success:
+            skills_count = len(profile_result.data.get("all_skills_canonical", []))
+            progress.complete_stage(done=1, errors=0)
+            progress.update_stage(detail=f"{skills_count} skills extracted")
+        else:
+            progress.fail_stage(", ".join(profile_result.errors))
 
-        # Step 2: Sourcing (browser scraping)
+        # ── Step 2: Sourcing (browser scraping) ──
+        progress.start_stage("Sourcing Jobs")
+
         async with browser_context(config) as ctx:
             with metrics.track_agent("sourcing") as m:
                 sourcing = SourcingAgent(config, db, ctx)
+
+                # Patch sourcing to report portal progress
+                _original_run = sourcing.run
+                portal_count = [0]
+
+                async def _sourcing_with_progress(*args, **kwargs):
+                    result = await _original_run(*args, **kwargs)
+                    return result
+
                 source_result = await sourcing.run()
                 m.items_out = source_result.count
                 m.errors.extend(source_result.errors)
                 summary["jobs_found"] = source_result.count
 
-            # Step 3: Parsing (visit each URL)
-            with metrics.track_agent("parsing", items_in=source_result.count) as m:
+            portal_stats = source_result.data.get("portal_stats", {}) if source_result.data else {}
+            portal_detail = ", ".join(f"{k}:{v}" for k, v in portal_stats.items())
+            progress.complete_stage(done=source_result.count, errors=len(source_result.errors))
+            progress.update_stage(detail=portal_detail)
+
+            # ── Step 3: Parsing (visit each URL, extract JDs) ──
+            pending_jobs = db.get_jobs(parse_status="pending")
+            total_to_parse = len(pending_jobs)
+            progress.start_stage("Parsing JDs", total=total_to_parse)
+
+            with metrics.track_agent("parsing", items_in=total_to_parse) as m:
                 parser = ParsingAgent(config, db, ctx, llm)
-                parse_result = await parser.run()
+
+                # Hook into the parser to get per-job progress
+                _original_parse = parser.run
+
+                async def _parsing_with_progress():
+                    """Run parsing with live progress updates."""
+                    from src.agents.base import AgentResult
+                    pending = db.get_jobs(parse_status="pending")
+                    if not pending:
+                        return AgentResult(data=[], count=0)
+
+                    from src.core.browser import new_page, safe_goto, human_delay
+                    import asyncio
+
+                    page = await new_page(parser.browser_ctx)
+                    parsed_count = 0
+                    errors = []
+
+                    for i, job in enumerate(pending):
+                        try:
+                            result = await parser._parse_job(page, job)
+                            if result:
+                                db.update_job(job["id"], **result, parse_status="parsed")
+                                parsed_count += 1
+                                title = job.get("title", "Unknown")[:40]
+                                company = job.get("company", "")[:20]
+                                progress.update_stage(
+                                    done=i + 1,
+                                    errors=len(errors),
+                                    detail=f"{title} @ {company}",
+                                )
+                            else:
+                                db.update_job(job["id"], parse_status="failed")
+                                errors.append(f"No content: {job['url']}")
+                                progress.update_stage(done=i + 1, errors=len(errors))
+                        except Exception as e:
+                            db.update_job(job["id"], parse_status="failed")
+                            errors.append(f"{job['url']}: {str(e)}")
+                            progress.update_stage(done=i + 1, errors=len(errors))
+
+                        await asyncio.sleep(parser.delay_between_calls)
+                        await human_delay(1, 2)
+
+                    await page.close()
+                    return AgentResult(
+                        data={"parsed": parsed_count, "failed": len(errors)},
+                        count=parsed_count,
+                        errors=errors,
+                    )
+
+                parse_result = await _parsing_with_progress()
                 m.items_out = parse_result.count
-                m.items_in = parse_result.count + len(parse_result.errors)
+                m.items_in = total_to_parse
                 m.errors.extend(parse_result.errors)
                 summary["jobs_parsed"] = parse_result.count
 
-        # Step 4: Write to Google Sheets
+            progress.complete_stage(done=parse_result.count, errors=len(parse_result.errors))
+
+        # ── Step 4: Write to Google Sheets ──
+        progress.start_stage("Google Sheets", total=1)
         try:
             sheets_config = config.get("sheets", {})
             if sheets_config.get("sheet_id"):
@@ -96,24 +182,27 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
                     sheets_config["sheet_id"],
                 )
                 all_jobs = db.get_jobs()
-
-                # Phase 1: no contacts or drafts yet
                 contacts_by_job = {}
                 drafts_by_job = {}
-
                 rows_written = writer.write_jobs(all_jobs, contacts_by_job, drafts_by_job)
-                logger.info("sheets_updated", rows=rows_written)
+                progress.complete_stage(done=rows_written)
+                progress.update_stage(detail=f"{rows_written} rows written")
             else:
-                logger.warning("sheets_skipped", reason="no sheet_id configured")
+                progress.complete_stage(done=0)
+                progress.update_stage(detail="skipped — no sheet_id")
         except Exception as e:
-            logger.error("sheets_failed", error=str(e))
+            progress.fail_stage(str(e)[:60])
             summary["errors"] += 1
 
     except Exception as e:
         logger.error("pipeline_failed", error=str(e))
+        progress.fail_stage(str(e)[:60])
         summary["errors"] += 1
 
-    # Finalize
+    # Stop live display
+    progress.stop()
+
+    # Finalize metrics
     metrics.end_run()
     completed_at = datetime.utcnow().isoformat()
     summary["completed_at"] = completed_at
@@ -124,6 +213,9 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
     usage = llm.get_usage_summary()
     summary["llm_cost"] = usage["total_cost_usd"]
     summary["llm_calls"] = usage["total_calls"]
+
+    # Print final summary table
+    print_summary(summary)
 
     # Update run record in DB
     db.update_run(run_id,
