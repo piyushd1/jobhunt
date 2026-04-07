@@ -8,11 +8,14 @@ from typing import Optional
 import structlog
 
 from src.agents.base import AgentResult
+from src.agents.matching import MatchingAgent
 from src.agents.parsing import ParsingAgent
 from src.agents.resume_profiler import ResumeProfiler
 from src.agents.sourcing import SourcingAgent
 from src.core.browser import browser_context
 from src.core.config import load_config
+from src.core.skills import SkillCanonicalizer
+from src.core.vectorstore import ResumeVectorStore
 from src.core.db import Database
 from src.core.embeddings import EmbeddingModel
 from src.core.llm import LLMClient
@@ -75,12 +78,19 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
             if profile_result.errors:
                 m.errors.extend(profile_result.errors)
 
+        candidate_profile = {}
         if profile_result.success:
-            skills_count = len(profile_result.data.get("all_skills_canonical", []))
+            candidate_profile = profile_result.data
+            skills_count = len(candidate_profile.get("all_skills_canonical", []))
             progress.complete_stage(done=1, errors=0)
             progress.update_stage(detail=f"{skills_count} skills extracted")
+
+            # Index resume into vector store for RAG
+            vectorstore = ResumeVectorStore(config, emb)
+            vectorstore.index_profile(candidate_profile)
         else:
             progress.fail_stage(", ".join(profile_result.errors))
+            vectorstore = None
 
         # ── Step 2: Sourcing (browser scraping) ──
         progress.start_stage("Sourcing Jobs")
@@ -172,7 +182,59 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
 
             progress.complete_stage(done=parse_result.count, errors=len(parse_result.errors))
 
-        # ── Step 4: Write to Google Sheets ──
+        # ── Step 4: Matching (score jobs against resume) ──
+        if candidate_profile and vectorstore:
+            unscored = db.get_jobs(parse_status="parsed")
+            unscored = [j for j in unscored if j.get("match_score") is None]
+
+            if unscored:
+                progress.start_stage("Matching", total=len(unscored))
+                canonicalizer = SkillCanonicalizer(embedding_model=emb, similarity_threshold=0.55)
+
+                with metrics.track_agent("matching", items_in=len(unscored)) as m:
+                    matcher = MatchingAgent(
+                        config, db, llm, vectorstore, canonicalizer, candidate_profile
+                    )
+
+                    # Run matching with progress
+                    scored = 0
+                    match_errors = []
+                    for i, job in enumerate(unscored):
+                        try:
+                            scores = matcher._compute_deterministic_score(job)
+                            llm_analysis = await matcher._llm_enhance(job, scores)
+                            db.update_job(job["id"],
+                                match_score=scores["total"],
+                                skill_score=scores["skill_score"],
+                                experience_score=scores["experience_score"],
+                                location_score=scores["location_score"],
+                                matched_skills=scores["matched_skills"],
+                                missing_skills=scores["missing_skills"],
+                                match_summary=llm_analysis.get("match_summary", ""),
+                            )
+                            scored += 1
+                            progress.update_stage(
+                                done=i + 1,
+                                detail=f"{scores['total']}% — {job.get('title', '')[:35]}",
+                            )
+                        except Exception as e:
+                            match_errors.append(str(e))
+                            progress.update_stage(done=i + 1, errors=len(match_errors))
+
+                        import asyncio
+                        await asyncio.sleep(config.get("llm", {}).get("delay_between_calls_s", 2))
+
+                    m.items_out = scored
+                    m.errors.extend(match_errors)
+                    summary["jobs_scored"] = scored
+
+                progress.complete_stage(done=scored, errors=len(match_errors))
+            else:
+                logger.info("matching_all_already_scored")
+        else:
+            logger.warning("matching_skipped", reason="no profile or vectorstore")
+
+        # ── Step 5: Write to Google Sheets (with scores now) ──
         progress.start_stage("Google Sheets", total=1)
         try:
             sheets_config = config.get("sheets", {})
