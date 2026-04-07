@@ -154,7 +154,7 @@ def _truncate(text: str, max_len: int) -> str:
     return text[:max_len] + "..." if len(text) > max_len else text
 
 
-def _parse_json_field(value: str) -> list | str:
+def _parse_json_field(value: str):
     if not value:
         return []
     try:
