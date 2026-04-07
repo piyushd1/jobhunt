@@ -21,6 +21,8 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> dic
 
     # Overlay env vars into config
     config.setdefault("llm", {})
+    config["llm"]["openrouter_api_key"] = os.getenv("OPENROUTER_API_KEY", "")
+    config["llm"]["groq_api_key"] = os.getenv("GROQ_API_KEY", "")
     config["llm"]["api_key"] = os.getenv("OPENAI_API_KEY", "")
     config["llm"]["anthropic_api_key"] = os.getenv("ANTHROPIC_API_KEY", "")
     config["llm"]["google_api_key"] = os.getenv("GOOGLE_API_KEY", "")

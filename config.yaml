@@ -2,9 +2,35 @@
 # Copy .env.example to .env and fill in your API keys
 
 llm:
-  model: "gpt-4o-mini"           # Default model (litellm format)
+  # ── Model format: "provider/model-name" (litellm convention) ──
+  # Groq:       groq/llama-3.1-8b-instant, groq/llama-3.3-70b-versatile
+  # OpenRouter: openrouter/google/gemini-2.0-flash, openrouter/meta-llama/llama-3.1-70b-instruct
+  # OpenAI:     gpt-4o-mini, gpt-4o
+  # Anthropic:  claude-3-haiku-20240307, claude-3-5-sonnet-20241022
+  # Google:     gemini/gemini-1.5-flash
+
+  # Default model — used when an agent doesn't specify its own
+  default_model: "groq/llama-3.1-8b-instant"
   temperature: 0.3
   max_retries: 2
+
+  # Per-agent model overrides — experiment freely, leave blank to use default
+  agents:
+    resume_profiler: ""            # One-time, can use a capable model
+    parsing: ""                    # Needs good structured extraction
+    matching: ""                   # Core scoring — benefits from stronger model
+    leadgen: ""                    # Light usage
+    messaging: ""                  # Drafting — tone matters, try different models
+
+  # Embedding model for resume RAG (ChromaDB)
+  # Options:
+  #   local: uses sentence-transformers (free, runs on CPU, no API needed)
+  #   openai: uses text-embedding-3-small via OpenAI API
+  #   groq: not supported yet
+  embedding:
+    provider: "local"              # "local" or "openai"
+    model: "all-MiniLM-L6-v2"     # For local: sentence-transformers model name
+    # model: "text-embedding-3-small"  # For openai
 
 browser:
   profile_dir: "./data/browser_profile"

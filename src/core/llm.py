@@ -1,6 +1,7 @@
-"""LLM abstraction layer using litellm — supports OpenAI, Anthropic, Google."""
+"""LLM abstraction layer using litellm — supports OpenRouter, Groq, OpenAI, Anthropic, Google."""
 
 import json
+import os
 from typing import Any, Optional
 
 import litellm
@@ -12,14 +13,55 @@ logger = structlog.get_logger()
 litellm.suppress_debug_info = True
 
 
+def _setup_provider_keys(llm_config: dict) -> None:
+    """Set env vars that litellm expects for each provider.
+
+    litellm reads keys from env vars by convention:
+      - OpenRouter: OPENROUTER_API_KEY
+      - Groq: GROQ_API_KEY
+      - OpenAI: OPENAI_API_KEY
+      - Anthropic: ANTHROPIC_API_KEY
+      - Google: GEMINI_API_KEY
+    Our config loader already loads them from .env, but litellm
+    needs them as actual env vars.
+    """
+    key_map = {
+        "openrouter_api_key": "OPENROUTER_API_KEY",
+        "groq_api_key": "GROQ_API_KEY",
+        "api_key": "OPENAI_API_KEY",
+        "anthropic_api_key": "ANTHROPIC_API_KEY",
+        "google_api_key": "GEMINI_API_KEY",
+    }
+    for config_key, env_var in key_map.items():
+        value = llm_config.get(config_key, "")
+        if value and not os.getenv(env_var):
+            os.environ[env_var] = value
+
+
 class LLMClient:
-    """Thin wrapper around litellm with token counting and cost tracking."""
+    """Thin wrapper around litellm with per-agent model selection and cost tracking.
+
+    Model format examples (litellm conventions):
+      - OpenRouter: "openrouter/google/gemini-2.0-flash-exp:free"
+      - Groq:       "groq/llama-3.1-8b-instant"
+      - OpenAI:     "gpt-4o-mini"
+      - Anthropic:  "claude-3-haiku-20240307"
+      - Google:     "gemini/gemini-1.5-flash"
+    """
 
     def __init__(self, config: dict):
         llm_config = config.get("llm", {})
-        self.model = llm_config.get("model", "gpt-4o-mini")
+        self.default_model = llm_config.get("default_model", "groq/llama-3.1-8b-instant")
         self.temperature = llm_config.get("temperature", 0.3)
         self.max_retries = llm_config.get("max_retries", 2)
+
+        # Per-agent model overrides from config
+        self._agent_models: dict[str, str] = {}
+        for agent_name, model in llm_config.get("agents", {}).items():
+            if model:  # Skip empty strings
+                self._agent_models[agent_name] = model
+
+        _setup_provider_keys(llm_config)
 
         # Track cumulative usage for the current run
         self._total_input_tokens = 0
@@ -27,22 +69,35 @@ class LLMClient:
         self._total_cost = 0.0
         self._calls: list[dict] = []
 
+    def model_for(self, agent: str) -> str:
+        """Get the model configured for a specific agent, or the default."""
+        return self._agent_models.get(agent, self.default_model)
+
     async def complete(
         self,
         prompt: str,
         system: str = "",
+        agent: Optional[str] = None,
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         json_mode: bool = False,
     ) -> str:
-        """Send a completion request and return the response text."""
+        """Send a completion request and return the response text.
+
+        Model resolution order:
+          1. Explicit `model` param (for one-off overrides)
+          2. Per-agent model from config (via `agent` param)
+          3. default_model from config
+        """
+        resolved_model = model or (self.model_for(agent) if agent else self.default_model)
+
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
         kwargs: dict[str, Any] = {
-            "model": model or self.model,
+            "model": resolved_model,
             "messages": messages,
             "temperature": temperature if temperature is not None else self.temperature,
             "num_retries": self.max_retries,
@@ -62,33 +117,38 @@ class LLMClient:
                 self._total_input_tokens += input_tokens
                 self._total_output_tokens += output_tokens
 
-                # Estimate cost
-                cost = litellm.completion_cost(completion_response=response)
+                # Estimate cost (some providers may not have pricing data)
+                try:
+                    cost = litellm.completion_cost(completion_response=response)
+                except Exception:
+                    cost = 0.0
                 self._total_cost += cost
 
                 self._calls.append({
-                    "model": model or self.model,
+                    "model": resolved_model,
+                    "agent": agent or "unknown",
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
                     "cost_usd": cost,
                 })
 
-            logger.debug("llm_completion", model=model or self.model,
+            logger.debug("llm_completion", model=resolved_model, agent=agent,
                          tokens=f"{usage.prompt_tokens}in/{usage.completion_tokens}out" if usage else "unknown")
             return content
 
         except Exception as e:
-            logger.error("llm_completion_failed", model=model or self.model, error=str(e))
+            logger.error("llm_completion_failed", model=resolved_model, agent=agent, error=str(e))
             raise
 
     async def complete_json(
         self,
         prompt: str,
         system: str = "",
+        agent: Optional[str] = None,
         model: Optional[str] = None,
     ) -> dict:
         """Send a completion request and parse the response as JSON."""
-        text = await self.complete(prompt, system=system, model=model, json_mode=True)
+        text = await self.complete(prompt, system=system, agent=agent, model=model, json_mode=True)
         try:
             return json.loads(text)
         except json.JSONDecodeError:
@@ -107,6 +167,17 @@ class LLMClient:
             "total_cost_usd": round(self._total_cost, 6),
             "total_calls": len(self._calls),
             "calls": self._calls,
+        }
+
+    def get_model_config_summary(self) -> dict:
+        """Show which model each agent will use — useful for setup/debugging."""
+        all_agents = ["resume_profiler", "parsing", "matching", "leadgen", "messaging"]
+        return {
+            "default_model": self.default_model,
+            "agent_models": {
+                agent: self._agent_models.get(agent, f"{self.default_model} (default)")
+                for agent in all_agents
+            },
         }
 
     def reset_usage(self) -> None:
