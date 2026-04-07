@@ -64,12 +64,14 @@ ResumeProfiler → SourcingAgent → ParsingAgent → MatchingAgent → LeadGenA
 - [x] Step 1.8: Orchestrator + CLI
 - [x] Step 1.9: Google Sheets output
 
-### Next Up (Phase 2)
-- [ ] Step 2.1: ChromaDB vector store for resume RAG
-- [ ] Step 2.2: Matching agent (hybrid scoring)
-- [ ] Step 2.3: Remaining 5 portal adapters
-- [ ] Step 2.4: Enhanced Google Sheets with scores
-- [ ] Step 2.5: Blacklist support
+### Completed (Phase 2, Batch 1)
+- [x] Step 2.1: ChromaDB vector store for resume RAG
+- [x] Step 2.2: Matching agent (hybrid formula + LLM + RAG)
+- [x] Step 2.5: Blacklist support (config.yaml + SQLite + CLI)
+
+### Next Up (Phase 2, Batch 2)
+- [ ] Step 2.3: Remaining 5 portal adapters (Indeed, Instahyre, Hirist, Wellfound, WhatsApp)
+- [ ] Step 2.4: Enhanced Google Sheets with conditional formatting
 
 ## File Structure
 
