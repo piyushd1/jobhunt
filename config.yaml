@@ -1,0 +1,87 @@
+# Job Hunt Agent — Configuration
+# Copy .env.example to .env and fill in your API keys
+
+llm:
+  model: "gpt-4o-mini"           # Default model (litellm format)
+  temperature: 0.3
+  max_retries: 2
+
+browser:
+  profile_dir: "./data/browser_profile"
+  headless: false                 # Visible browser = lower detection risk
+  slow_mo: 800                   # ms between browser actions
+  timeout: 30000                 # ms page load timeout
+
+search:
+  keywords:
+    - "Product Manager"
+    - "Senior Product Manager"
+    - "Group Product Manager"
+    - "Project Manager"
+    - "Program Manager"
+    - "Product Owner"
+  location: "India"
+  remote_ok: true
+  experience_years: 5
+  max_results_per_portal: 25
+
+portals:
+  linkedin:
+    enabled: true
+    base_url: "https://www.linkedin.com/jobs/search/"
+  naukri:
+    enabled: true
+    base_url: "https://www.naukri.com"
+  foundit:
+    enabled: true
+    base_url: "https://www.foundit.in"
+  indeed:
+    enabled: false               # Phase 2
+    base_url: "https://www.indeed.co.in"
+  instahyre:
+    enabled: false               # Phase 2
+    base_url: "https://www.instahyre.com/candidate/opportunities/"
+  hirist:
+    enabled: false               # Phase 2
+    base_url: "https://www.hirist.tech"
+  wellfound:
+    enabled: false               # Phase 2
+    base_url: "https://wellfound.com/jobs"
+  whatsapp:
+    enabled: false               # Phase 2
+    group_names:
+      - "PM Job's"
+      - "HireWire Job Alerts"
+      - "Protocol Jobs"
+      - "Daily PM Jobs"
+    scan_hours: 24
+
+matching:
+  shortlist_threshold: 70        # Lead gen only for scores >= this
+  max_shortlist_per_day: 20
+  weights:
+    skills: 0.60
+    experience: 0.25
+    location: 0.15
+  mandatory_skill_cap: 65        # Max score if >= 2 mandatory skills missing
+
+lead_gen:
+  contacts_per_job: 3
+  search_roles:
+    - "Recruiter"
+    - "Talent Acquisition"
+    - "Engineering Manager"
+    - "HR"
+  delay_between_searches_s: [5, 8]  # Random range
+
+resume:
+  path: "./data/resume.pdf"
+  profile_cache: "./data/candidate_profile.json"
+
+output:
+  db_path: "./data/job_hunt.db"
+
+blacklist:
+  companies: []
+  title_keywords: ["intern", "fresher", "unpaid"]
+  min_experience_years: 0
