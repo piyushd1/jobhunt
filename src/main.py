@@ -1,7 +1,10 @@
 """CLI entry point for the Job Hunt Agent.
 
 Usage:
-    python -m src hunt                          # Run the full pipeline
+    python -m src hunt                          # Run the full pipeline (incremental)
+    python -m src hunt fresh                    # Nuke DB + fresh run from scratch
+    python -m src reset scores                  # Reset match scores only (re-score)
+    python -m src reset all                     # Nuke entire DB (full fresh start)
     python -m src setup                         # Open browser for portal logins
     python -m src status                        # Show job counts in DB
     python -m src models                        # Show configured LLM models per agent
@@ -15,6 +18,7 @@ Usage:
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 
@@ -74,14 +78,59 @@ def _patch_asyncio_ssl_cleanup():
     asyncio.run = _patched_run
 
 
+def cmd_reset():
+    """Reset job data for a fresh run."""
+    config = load_config()
+    db = Database(config.get("output", {}).get("db_path", "./data/job_hunt.db"))
+
+    subcmd = sys.argv[2].lower() if len(sys.argv) > 2 else "scores"
+
+    if subcmd == "scores":
+        db.conn.execute("UPDATE jobs SET match_score = NULL, skill_score = NULL, experience_score = NULL, location_score = NULL, matched_skills = NULL, missing_skills = NULL, match_summary = NULL")
+        db.conn.execute("DELETE FROM contacts")
+        db.conn.execute("DELETE FROM drafts")
+        db.conn.commit()
+        count = db.conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+        console.print(f"[green]Reset scores for {count} jobs. Contacts and drafts cleared.[/]")
+        console.print("[dim]Next `hunt` will re-score all parsed jobs with current algorithm.[/]")
+
+    elif subcmd == "all":
+        db.conn.execute("DELETE FROM jobs")
+        db.conn.execute("DELETE FROM contacts")
+        db.conn.execute("DELETE FROM drafts")
+        db.conn.execute("DELETE FROM runs")
+        db.conn.execute("DELETE FROM agent_metrics")
+        db.conn.execute("DELETE FROM cost_log")
+        db.conn.commit()
+        # Also clear chroma
+        import shutil
+        chroma_dir = config.get("output", {}).get("chroma_dir", "./data/chroma")
+        if os.path.exists(chroma_dir):
+            shutil.rmtree(chroma_dir)
+        # Clear resume cache
+        cache = config.get("resume", {}).get("profile_cache", "./data/candidate_profile.json")
+        if os.path.exists(cache):
+            os.remove(cache)
+        console.print("[green]Full reset: all jobs, contacts, drafts, metrics, chroma, resume cache cleared.[/]")
+        console.print("[dim]Next `hunt` starts completely fresh.[/]")
+
+    else:
+        console.print("[yellow]Usage: python -m src reset <scores|all>[/]")
+
+    db.close()
+
+
 def cmd_hunt():
     """Run the full sourcing pipeline."""
     from src.orchestrator import run_pipeline
 
-    # Fix Python 3.9 SSL/asyncio cleanup errors on exit.
-    # asyncio's event loop prints scary "Fatal error on SSL transport"
-    # during teardown — this is cosmetic but alarming. We patch the
-    # event loop's exception handler to suppress it.
+    # Check for "fresh" flag
+    if len(sys.argv) > 2 and sys.argv[2].lower() == "fresh":
+        console.print("[yellow]Fresh run requested — resetting everything...[/]")
+        sys.argv = [sys.argv[0], "reset", "all"]
+        cmd_reset()
+        sys.argv = [sys.argv[0], "hunt"]
+
     _patch_asyncio_ssl_cleanup()
 
     try:
@@ -353,6 +402,7 @@ def main():
     command = sys.argv[1].lower()
     commands = {
         "hunt": cmd_hunt,
+        "reset": cmd_reset,
         "blacklist": cmd_blacklist,
         "setup": cmd_setup,
         "status": cmd_status,
