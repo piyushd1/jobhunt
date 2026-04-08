@@ -69,7 +69,11 @@ class MatchingAgent(BaseAgent):
         self.tier2_roles = [r.lower() for r in role_priority.get("tier2", [])]
         self.tier3_roles = [r.lower() for r in role_priority.get("tier3", [])]
 
-        # Domain preferences
+        # Resume signals — phrases from YOUR work that indicate good JD fit
+        self.resume_signals = [s.lower() for s in match_config.get("resume_signals", [])]
+        # Disqualifiers — phrases that indicate the role needs expertise you lack
+        self.disqualifiers = [d.lower() for d in match_config.get("disqualifiers", [])]
+        # Domain keyword groups (broader company-level signals)
         domain_prefs = match_config.get("domain_preferences", {})
         self.strong_domains = [d.lower() for d in domain_prefs.get("strong_fit", [])]
         self.moderate_domains = [d.lower() for d in domain_prefs.get("moderate_fit", [])]
@@ -290,10 +294,15 @@ Analyze this match."""
         return None
 
     def _compute_domain_fit(self, job: dict) -> float:
-        """Score how well a job's domain matches the candidate's background.
+        """Score how well a job matches the candidate's actual work experience.
 
-        Aggressively penalizes weak-fit domains. Domain is 30% of total score,
-        so a weak domain can drop a job by ~25+ points.
+        Uses 3 signal layers (most important first):
+        1. Resume signals — does the JD describe work you've DONE?
+        2. Disqualifiers — does the JD need expertise you DON'T have?
+        3. Domain keywords — broad company/industry classification
+
+        The key insight: PM skills are universal, so skill_score doesn't
+        differentiate. This function IS the differentiator.
 
         Returns: 0.0 (hard mismatch) to 1.0 (strong fit).
         """
@@ -304,22 +313,60 @@ Analyze this match."""
             (job.get("jd_summary") or ""),
         ]).lower()
 
-        strong_hits = sum(1 for d in self.strong_domains if d in text)
-        weak_hits = sum(1 for d in self.weak_domains if d in text)
-        moderate_hits = sum(1 for d in self.moderate_domains if d in text)
+        # Layer 1: Resume signals (phrases from YOUR resume found in the JD)
+        signal_hits = sum(1 for s in self.resume_signals if s in text)
 
-        if weak_hits >= 2 and strong_hits == 0:
-            return 0.0      # Multiple weak signals, no strong → hard reject
-        elif weak_hits > 0 and strong_hits == 0:
-            return 0.15     # Single weak signal → heavy penalty
-        elif strong_hits > 0 and weak_hits == 0:
-            return 1.0      # Clear strong match
-        elif strong_hits > 0 and weak_hits > 0:
-            return 0.6      # Mixed — some overlap but also mismatch
-        elif moderate_hits > 0 and weak_hits == 0:
-            return 0.7      # Adjacent domain — decent fit
-        else:
-            return 0.4      # Unknown domain — slight penalty (conservative)
+        # Layer 2: Disqualifiers (JD needs expertise you lack)
+        disq_hits = sum(1 for d in self.disqualifiers if d in text)
+
+        # Layer 3: Domain keywords (broader company-level)
+        strong_hits = sum(1 for d in self.strong_domains if d in text)
+        moderate_hits = sum(1 for d in self.moderate_domains if d in text)
+        weak_hits = sum(1 for d in self.weak_domains if d in text)
+
+        # Scoring logic — resume signals can OVERRIDE domain keywords
+        # because a "marketplace feature" at a B2B company is still a good fit
+
+        if disq_hits >= 2 and signal_hits <= 1:
+            # Multiple disqualifiers, barely any resume match → hard reject
+            return 0.05
+
+        if disq_hits >= 1 and signal_hits == 0:
+            # Has disqualifier, no positive signals → likely bad fit
+            return 0.15
+
+        if signal_hits >= 4:
+            # Many resume signals → JD describes your actual work
+            return 1.0
+
+        if signal_hits >= 2 and disq_hits == 0:
+            # Good resume match, no disqualifiers → strong fit
+            return 0.9
+
+        if signal_hits >= 2 and disq_hits >= 1:
+            # Mixed: some match, some mismatch → moderate fit
+            return 0.55
+
+        if signal_hits >= 1 and strong_hits >= 1:
+            # Some signal + right domain → decent fit
+            return 0.8
+
+        if strong_hits >= 1 and disq_hits == 0:
+            # Right domain, no disqualifiers → good
+            return 0.75
+
+        if moderate_hits >= 1 and disq_hits == 0:
+            # Adjacent domain, no disqualifiers → ok
+            return 0.6
+
+        if weak_hits >= 1 and signal_hits == 0:
+            # Wrong domain, no resume signals → bad fit
+            return 0.15
+
+        # Unknown domain, no signals either way
+        if signal_hits >= 1:
+            return 0.65  # At least one positive signal
+        return 0.4  # Truly unknown — slightly below neutral
 
     def _get_role_tier(self, title: str) -> int:
         """Determine which priority tier a job title falls into.

@@ -138,23 +138,129 @@ portals:
 
 matching:
   shortlist_threshold: 70        # Lead gen only for scores >= this
-  sheet_min_score: 55            # Only write jobs scoring >= this to Google Sheets
+  sheet_min_score: 50            # Only jobs >= this appear in Google Sheet (targets 20-40 jobs)
   max_shortlist_per_day: 20
   weights:
-    skills: 0.40
+    skills: 0.35
     experience: 0.15
     location: 0.15
-    domain: 0.30                 # Domain fit is critical — doubled from 0.15
-  mandatory_skill_cap: 55        # Lowered: if core skills don't match, score drops hard
+    domain: 0.35                 # Domain + work-pattern fit is THE differentiator
+  mandatory_skill_cap: 55
 
-  # Domain preferences — based on YOUR actual resume background
-  # Your domains: Marketplace, B2C, Consumer platforms, Local services, AI/ML
+  # ── RESUME MATCH SIGNALS ──
+  # Phrases from YOUR actual resume/work. When found in a JD, they indicate
+  # the job needs the type of work you've actually done. Scored as positive signals.
+  resume_signals:
+    # Marketplace dynamics (your core for 12 years)
+    - "marketplace"
+    - "two-sided"
+    - "two sided"
+    - "supply and demand"
+    - "supply side"
+    - "demand side"
+    - "vendor management"
+    - "partner management"
+    - "seller"
+    - "matchmaking"
+    - "booking"
+    - "order management"
+
+    # Consumer/mobile product
+    - "consumer"
+    - "mobile app"
+    - "app product"
+    - "dau"
+    - "mau"
+    - "user acquisition"
+    - "user engagement"
+    - "retention"
+    - "churn"
+    - "nps"
+
+    # Growth & monetization (your strengths)
+    - "growth"
+    - "p&l"
+    - "pnl"
+    - "unit economics"
+    - "pricing"
+    - "monetization"
+    - "revenue"
+    - "gtm"
+    - "go-to-market"
+    - "0 to 1"
+    - "zero to one"
+    - "0-to-1"
+
+    # Platform & architecture (your JD work)
+    - "platform"
+    - "api"
+    - "self-serve"
+    - "self serve"
+    - "scalab"
+
+    # AI/ML (your recent differentiator)
+    - "ai product"
+    - "llm"
+    - "genai"
+    - "machine learning"
+    - "search"
+
+    # Local services / on-demand (your domain)
+    - "local"
+    - "hyperlocal"
+    - "on-demand"
+    - "on demand"
+    - "home services"
+    - "gig"
+    - "e-commerce"
+    - "ecommerce"
+
+  # ── DISQUALIFYING SIGNALS ──
+  # Phrases that indicate the role needs deep domain expertise you DON'T have.
+  # If 2+ disqualifiers appear and 0 resume signals, the job is a bad fit.
+  disqualifiers:
+    - "enterprise sales experience"
+    - "saas sales"
+    - "b2b saas experience"
+    - "enterprise customer"
+    - "large account"
+    - "core banking"
+    - "banking domain"
+    - "lending platform"
+    - "loan"
+    - "underwriting"
+    - "insurance product"
+    - "claims management"
+    - "regulatory compliance"
+    - "soc 2"
+    - "hipaa"
+    - "pci dss"
+    - "developer tools"
+    - "developer experience"
+    - "sdk"
+    - "embedded system"
+    - "firmware"
+    - "semiconductor"
+    - "chip design"
+    - "telecom"
+    - "networking protocol"
+    - "hardware product"
+    - "manufacturing"
+    - "supply chain management"
+    - "procurement"
+    - "erp implementation"
+    - "crm platform"
+    - "salesforce"
+    - "wealth management"
+    - "asset management"
+
+  # ── DOMAIN CATEGORIES ──
+  # Broader company-level domain signals (secondary to resume/disqualifier signals)
   domain_preferences:
-    strong_fit:                  # Your core domains — full boost
+    strong_fit:
       - "marketplace"
       - "consumer"
       - "b2c"
-      - "consumer tech"
       - "e-commerce"
       - "ecommerce"
       - "platform"
@@ -163,23 +269,17 @@ matching:
       - "hyperlocal"
       - "on-demand"
       - "gig economy"
-      - "ai"
-      - "machine learning"
-      - "genai"
-      - "llm"
-      - "search"
-      - "app"
-      - "mobile"
+      - "classifieds"
+      - "aggregator"
       - "digital media"
       - "content platform"
       - "social"
       - "entertainment"
-      - "aggregator"
-      - "classifieds"
-    moderate_fit:                # Adjacent — transferable skills
+      - "mobile"
+      - "app"
+    moderate_fit:
       - "fintech"
       - "payments"
-      - "lending"
       - "neobank"
       - "edtech"
       - "food delivery"
@@ -194,34 +294,24 @@ matching:
       - "adtech"
       - "advertising"
       - "startup"
-    weak_fit:                    # NOT your background — hard penalty
+      - "ai"
+      - "machine learning"
+      - "genai"
+    weak_fit:
       - "b2b saas"
-      - "b2b"
-      - "enterprise"
       - "enterprise software"
       - "erp"
       - "crm"
-      - "salesforce"
       - "cybersecurity"
-      - "security"
       - "devtools"
       - "developer tools"
       - "cloud infrastructure"
-      - "infrastructure"
       - "consulting"
       - "manufacturing"
-      - "industrial"
       - "semiconductor"
       - "telecom"
-      - "networking"
-      - "supply chain"
-      - "procurement"
-      - "legal tech"
-      - "compliance"
       - "insurance"
-      - "banking"
       - "core banking"
-      - "wealth management"
       - "embedded"
       - "firmware"
       - "hardware"
