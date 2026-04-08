@@ -3,12 +3,20 @@
 from src.portals.linkedin import LinkedInAdapter
 from src.portals.naukri import NaukriAdapter
 from src.portals.foundit import FounditAdapter
+from src.portals.indeed import IndeedAdapter
+from src.portals.instahyre import InstahyreAdapter
+from src.portals.hirist import HiristAdapter
+from src.portals.wellfound import WellfoundAdapter
 
 # Add new adapters here as they're built
 PORTAL_REGISTRY: dict[str, type] = {
     "linkedin": LinkedInAdapter,
     "naukri": NaukriAdapter,
     "foundit": FounditAdapter,
+    "indeed": IndeedAdapter,
+    "instahyre": InstahyreAdapter,
+    "hirist": HiristAdapter,
+    "wellfound": WellfoundAdapter,
 }
 
 

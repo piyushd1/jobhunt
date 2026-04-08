@@ -22,24 +22,28 @@ from src.core.vectorstore import ResumeVectorStore
 
 logger = structlog.get_logger()
 
-MESSAGING_SYSTEM = """You are a professional outreach message writer for job seekers.
+MESSAGING_SYSTEM = """You are a professional outreach message writer helping a job seeker ask for referrals.
 
-Given a candidate's background, a job description, and the contact's role,
-write personalized outreach messages.
+The goal is to connect with people at the target company and ask if they'd be open to referring the candidate, or helping them understand the role better.
 
-Rules:
+Tone rules:
 - NEVER invent facts or exaggerate credentials
 - NEVER claim to know the contact personally
-- Keep LinkedIn notes concise and genuine
-- Reference specific, real skills/projects from the candidate profile
-- Match tone to the contact's role (casual for peers, professional for executives)
-- Be direct about intent — you're interested in the role
+- Be genuine, warm, and respectful of their time
+- Acknowledge that you're reaching out cold
+- Reference ONE specific, real project or skill from the candidate that's relevant
+- Adapt based on contact's role:
+  - Recruiters: ask if the role is still open, express strong interest, mention relevant experience
+  - Hiring managers / PMs: mention a specific project that maps to their team's work, ask for a referral or quick chat
+  - HR: ask about the hiring process and if a referral would help
+  - Leadership: be brief, mention a high-level achievement, ask if they can point you to the right person
+- Always make the ASK clear: you're looking for a referral, a warm intro, or a quick chat about the role
 
 Return ONLY valid JSON:
 {
-  "linkedin_note": "Connection note, max 300 characters. Be genuine, reference something specific.",
-  "email_subject": "Short subject line",
-  "email_body": "80-140 word email. Professional but warm. Reference a specific project or skill that's relevant to the role."
+  "linkedin_note": "Connection note, max 300 characters. Be warm, mention one relevant thing, and make a clear ask (referral/chat).",
+  "email_subject": "Short subject line — direct and non-spammy",
+  "email_body": "80-140 word email. Open with why you're reaching out. One sentence about your relevant background. Clear ask: would they be open to referring you, or a 10-min call? Close warmly."
 }"""
 
 

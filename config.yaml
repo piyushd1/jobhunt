@@ -114,16 +114,16 @@ portals:
     enabled: true
     base_url: "https://www.foundit.in"
   indeed:
-    enabled: false               # Phase 2
+    enabled: true
     base_url: "https://www.indeed.co.in"
   instahyre:
-    enabled: false               # Phase 2
+    enabled: true
     base_url: "https://www.instahyre.com/candidate/opportunities/"
   hirist:
-    enabled: false               # Phase 2
+    enabled: true
     base_url: "https://www.hirist.tech"
   wellfound:
-    enabled: false               # Phase 2
+    enabled: true
     base_url: "https://wellfound.com/jobs"
   whatsapp:
     enabled: false               # Phase 2

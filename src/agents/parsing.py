@@ -85,7 +85,7 @@ Given raw job description text, extract structured data. Return ONLY valid JSON:
   "company": "Company Name",
   "location": "City, Country or Remote",
   "remote": "Remote / Hybrid / On-site / Unknown",
-  "experience_required": "3-5 years or Senior level",
+  "experience_required": "Exactly one of: 0-2 years, 3-5 years, 5-8 years, 8-12 years, 12+ years",
   "skills_required": ["skill1", "skill2", ...],
   "skills_preferred": ["skill3", "skill4", ...],
   "summary": "2-3 sentence summary of the role and key responsibilities"

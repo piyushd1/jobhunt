@@ -251,7 +251,9 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
                     m.items_out = leadgen_result.count
                     m.errors.extend(leadgen_result.errors)
                     summary["contacts_found"] = leadgen_result.count
-                progress.complete_stage(done=leadgen_result.count, errors=len(leadgen_result.errors))
+                    jobs_processed = leadgen_result.data.get("jobs_processed", 0) if leadgen_result.data else 0
+                progress.complete_stage(done=jobs_processed, errors=len(leadgen_result.errors))
+                progress.update_stage(detail=f"{leadgen_result.count} contacts from {jobs_processed} companies")
             else:
                 logger.info("leadgen_skipped", reason="no new shortlisted jobs need contacts")
 
