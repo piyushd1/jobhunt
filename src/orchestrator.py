@@ -291,6 +291,15 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
                 )
                 all_jobs = db.get_jobs()
 
+                # Filter: only write well-matched jobs to the sheet
+                sheet_min = config.get("matching", {}).get("sheet_min_score", 0)
+                if sheet_min > 0:
+                    before_count = len(all_jobs)
+                    all_jobs = [j for j in all_jobs
+                                if j.get("match_score") is not None and j["match_score"] >= sheet_min]
+                    logger.info("sheet_filter_applied", min_score=sheet_min,
+                                before=before_count, after=len(all_jobs))
+
                 # Build contacts and drafts lookup
                 contacts_by_job = {}
                 drafts_by_job = {}

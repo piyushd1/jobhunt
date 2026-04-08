@@ -138,53 +138,94 @@ portals:
 
 matching:
   shortlist_threshold: 70        # Lead gen only for scores >= this
+  sheet_min_score: 55            # Only write jobs scoring >= this to Google Sheets
   max_shortlist_per_day: 20
   weights:
-    skills: 0.50
-    experience: 0.20
+    skills: 0.40
+    experience: 0.15
     location: 0.15
-    domain: 0.15                 # NEW: domain fit matters
-  mandatory_skill_cap: 65        # Max score if >= 2 mandatory skills missing
+    domain: 0.30                 # Domain fit is critical — doubled from 0.15
+  mandatory_skill_cap: 55        # Lowered: if core skills don't match, score drops hard
 
-  # Domain preferences — matching boosts/penalizes based on company domain
+  # Domain preferences — based on YOUR actual resume background
+  # Your domains: Marketplace, B2C, Consumer platforms, Local services, AI/ML
   domain_preferences:
-    strong_fit:                  # Boost: these match your background
+    strong_fit:                  # Your core domains — full boost
       - "marketplace"
       - "consumer"
       - "b2c"
-      - "adtech"
-      - "advertising"
+      - "consumer tech"
       - "e-commerce"
       - "ecommerce"
       - "platform"
-      - "fintech"
-      - "payments"
+      - "local services"
+      - "home services"
+      - "hyperlocal"
+      - "on-demand"
+      - "gig economy"
       - "ai"
       - "machine learning"
-      - "startup"
-      - "media"
-      - "entertainment"
-      - "social"
+      - "genai"
+      - "llm"
       - "search"
-      - "local services"
-    moderate_fit:                # Neutral: transferable
+      - "app"
+      - "mobile"
+      - "digital media"
+      - "content platform"
+      - "social"
+      - "entertainment"
+      - "aggregator"
+      - "classifieds"
+    moderate_fit:                # Adjacent — transferable skills
+      - "fintech"
+      - "payments"
+      - "lending"
+      - "neobank"
       - "edtech"
-      - "healthtech"
-      - "logistics"
-      - "mobility"
       - "food delivery"
+      - "quick commerce"
       - "travel"
+      - "mobility"
+      - "logistics"
       - "real estate"
-    weak_fit:                    # Penalize: not your domain
+      - "proptech"
+      - "healthtech"
+      - "gaming"
+      - "adtech"
+      - "advertising"
+      - "startup"
+    weak_fit:                    # NOT your background — hard penalty
       - "b2b saas"
+      - "b2b"
+      - "enterprise"
       - "enterprise software"
       - "erp"
       - "crm"
+      - "salesforce"
       - "cybersecurity"
+      - "security"
       - "devtools"
+      - "developer tools"
       - "cloud infrastructure"
+      - "infrastructure"
       - "consulting"
       - "manufacturing"
+      - "industrial"
+      - "semiconductor"
+      - "telecom"
+      - "networking"
+      - "supply chain"
+      - "procurement"
+      - "legal tech"
+      - "compliance"
+      - "insurance"
+      - "banking"
+      - "core banking"
+      - "wealth management"
+      - "embedded"
+      - "firmware"
+      - "hardware"
+      - "iot"
 
   # Supplementary context file (your PM stories for richer matching)
   stories_file: "./data/stories.md"

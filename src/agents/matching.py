@@ -229,20 +229,33 @@ class MatchingAgent(BaseAgent):
         relevant_chunks = self.vectorstore.query(jd_text, top_k=3)
         context = "\n".join(f"- {c['text']}" for c in relevant_chunks)
 
-        prompt = f"""Candidate skills: {', '.join(list(self.candidate_skills)[:30])}
-Candidate experience: {self.candidate_years} years
-Relevant experience from resume:
+        # Get candidate's domain context for the LLM
+        candidate_domains = self.profile.get("skills", {}).get("domains", [])
+        candidate_summary = self.profile.get("summary", "")
+
+        prompt = f"""CANDIDATE BACKGROUND:
+{candidate_summary}
+Core domains: {', '.join(candidate_domains)}
+Experience: {self.candidate_years} years
+Key companies: Justdial (marketplace/local services), Urban Company (home services marketplace), Gigstart (artist marketplace)
+
+Relevant experience for this role:
 {context}
 
-Job: {job.get('title', '')} at {job.get('company', '')}
+JOB:
+{job.get('title', '')} at {job.get('company', '')}
 Location: {job.get('location', '')} ({job.get('remote', '')})
+Domain score: {scores.get('domain_score', 'N/A')}%
 
 Job description (excerpt):
 {jd_text[:2000]}
 
+SCORING:
 Deterministic score: {scores['total']}%
 Matched skills: {', '.join(scores['matched_skills'][:10])}
 Missing skills: {', '.join(scores['missing_skills'][:10])}
+
+IMPORTANT: This candidate's strength is B2C marketplace/consumer platforms. If this JD requires deep B2B SaaS, enterprise, or niche domain expertise the candidate doesn't have, say so clearly in the summary. Be honest about domain fit.
 
 Analyze this match."""
 
@@ -279,10 +292,11 @@ Analyze this match."""
     def _compute_domain_fit(self, job: dict) -> float:
         """Score how well a job's domain matches the candidate's background.
 
-        Checks JD text, company name, and title for domain signals.
-        Returns: 0.0 (weak fit) to 1.0 (strong fit).
+        Aggressively penalizes weak-fit domains. Domain is 30% of total score,
+        so a weak domain can drop a job by ~25+ points.
+
+        Returns: 0.0 (hard mismatch) to 1.0 (strong fit).
         """
-        # Build a text blob to scan for domain signals
         text = " ".join([
             (job.get("title") or ""),
             (job.get("company") or ""),
@@ -290,21 +304,22 @@ Analyze this match."""
             (job.get("jd_summary") or ""),
         ]).lower()
 
-        # Check strong fit domains
         strong_hits = sum(1 for d in self.strong_domains if d in text)
         weak_hits = sum(1 for d in self.weak_domains if d in text)
         moderate_hits = sum(1 for d in self.moderate_domains if d in text)
 
-        if strong_hits > 0 and weak_hits == 0:
-            return 1.0      # Clear strong domain match
-        elif strong_hits > 0 and weak_hits > 0:
-            return 0.7      # Mixed signals — some overlap
-        elif moderate_hits > 0 and weak_hits == 0:
-            return 0.6      # Transferable domain
+        if weak_hits >= 2 and strong_hits == 0:
+            return 0.0      # Multiple weak signals, no strong → hard reject
         elif weak_hits > 0 and strong_hits == 0:
-            return 0.2      # Weak domain fit (e.g., pure B2B SaaS)
+            return 0.15     # Single weak signal → heavy penalty
+        elif strong_hits > 0 and weak_hits == 0:
+            return 1.0      # Clear strong match
+        elif strong_hits > 0 and weak_hits > 0:
+            return 0.6      # Mixed — some overlap but also mismatch
+        elif moderate_hits > 0 and weak_hits == 0:
+            return 0.7      # Adjacent domain — decent fit
         else:
-            return 0.5      # Unknown domain — neutral
+            return 0.4      # Unknown domain — slight penalty (conservative)
 
     def _get_role_tier(self, title: str) -> int:
         """Determine which priority tier a job title falls into.
