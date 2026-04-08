@@ -283,6 +283,36 @@ def cmd_metrics():
             )
         console.print(agent_table)
 
+    # Lead gen eval metrics
+    contacts_rows = db.conn.execute(
+        "SELECT c.confidence, COUNT(*) as cnt FROM contacts c "
+        "JOIN jobs j ON c.job_id = j.id GROUP BY c.confidence"
+    ).fetchall()
+    total_contacts = db.conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
+    total_drafts = db.conn.execute("SELECT COUNT(*) FROM drafts").fetchone()[0]
+    shortlisted = db.conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE match_score >= ?",
+        (config.get("matching", {}).get("shortlist_threshold", 70),)
+    ).fetchone()[0]
+    with_contacts = db.conn.execute(
+        "SELECT COUNT(DISTINCT job_id) FROM contacts"
+    ).fetchone()[0]
+
+    if shortlisted > 0 or total_contacts > 0:
+        lead_table = Table(title="Lead Gen Eval", border_style="magenta")
+        lead_table.add_column("Metric", style="cyan")
+        lead_table.add_column("Value", style="white", justify="right")
+
+        lead_table.add_row("Shortlisted jobs (≥ threshold)", str(shortlisted))
+        lead_table.add_row("Jobs with contacts found", f"{with_contacts} ({with_contacts*100//max(shortlisted,1)}%)")
+        lead_table.add_row("Total contacts", str(total_contacts))
+        lead_table.add_row("Avg contacts per job", f"{total_contacts/max(with_contacts,1):.1f}" if with_contacts else "0")
+        lead_table.add_row("Total drafts written", str(total_drafts))
+        for row in contacts_rows:
+            lead_table.add_row(f"  Confidence: {row['confidence']}", str(row["cnt"]))
+
+        console.print(lead_table)
+
     # Cost breakdown from latest run
     cost_rows = db.conn.execute(
         "SELECT agent, model, SUM(input_tokens) as inp, SUM(output_tokens) as outp, "

@@ -78,10 +78,10 @@ class SheetsWriter:
             contacts = contacts_by_job.get(job["id"], [])
             drafts = drafts_by_job.get(job["id"], [])
 
-            # Format portal links
+            # Format portal links — just URLs, no labels
             source_urls = _safe_json_loads(job.get("source_urls", "{}"), {})
             if source_urls:
-                portal_links = "\n".join(f"{k}: {v}" for k, v in source_urls.items())
+                portal_links = "\n".join(source_urls.values())
             else:
                 portal_links = job.get("url", "")
 
