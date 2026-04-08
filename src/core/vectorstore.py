@@ -42,17 +42,22 @@ class ResumeVectorStore:
             )
         return self._collection
 
-    def index_profile(self, profile: dict) -> int:
-        """Chunk and index a candidate profile. Returns number of chunks indexed."""
+    def index_profile(self, profile: dict, stories_file: str = "") -> int:
+        """Chunk and index a candidate profile + optional stories. Returns chunks indexed."""
         chunks = self._chunk_profile(profile)
+
+        # Also index PM stories if available
+        if stories_file:
+            story_chunks = self._chunk_stories_file(stories_file)
+            chunks.extend(story_chunks)
+
         if not chunks:
             logger.warning("vectorstore_no_chunks")
             return 0
 
-        # Check if already indexed (same content)
+        # Clear and re-index
         existing = self.collection.count()
         if existing > 0:
-            # Clear and re-index
             self.client.delete_collection(self.COLLECTION_NAME)
             self._collection = None
 
@@ -68,7 +73,9 @@ class ResumeVectorStore:
             metadatas=metadatas,
         )
 
-        logger.info("vectorstore_indexed", chunks=len(chunks))
+        logger.info("vectorstore_indexed", chunks=len(chunks),
+                     profile_chunks=len(self._chunk_profile(profile)),
+                     story_chunks=len(chunks) - len(self._chunk_profile(profile)))
         return len(chunks)
 
     def query(self, jd_text: str, top_k: int = 3) -> list[dict]:
@@ -182,4 +189,37 @@ class ResumeVectorStore:
                 "metadata": {"type": "education"},
             })
 
+        return chunks
+
+    def _chunk_stories_file(self, filepath: str) -> list[dict]:
+        """Chunk a PM stories markdown file into embeddable segments.
+
+        Each story (### heading) becomes a separate chunk for RAG retrieval.
+        """
+        import re
+        try:
+            text = Path(filepath).read_text()
+        except Exception as e:
+            logger.warning("stories_file_read_failed", path=filepath, error=str(e))
+            return []
+
+        chunks = []
+        # Split by ### headings (story boundaries)
+        stories = re.split(r'\n###\s+', text)
+
+        for i, story in enumerate(stories):
+            if not story.strip() or len(story.strip()) < 50:
+                continue
+
+            lines = story.strip().split('\n')
+            title = lines[0].strip().lstrip('#').strip()
+            story_text = story.strip()[:1500]
+
+            chunks.append({
+                "id": f"story_{i}",
+                "text": f"PM Story: {title}. {story_text}",
+                "metadata": {"type": "story", "title": title},
+            })
+
+        logger.info("stories_chunked", file=filepath, chunks=len(chunks))
         return chunks

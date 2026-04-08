@@ -138,10 +138,54 @@ matching:
   shortlist_threshold: 70        # Lead gen only for scores >= this
   max_shortlist_per_day: 20
   weights:
-    skills: 0.60
-    experience: 0.25
+    skills: 0.50
+    experience: 0.20
     location: 0.15
+    domain: 0.15                 # NEW: domain fit matters
   mandatory_skill_cap: 65        # Max score if >= 2 mandatory skills missing
+
+  # Domain preferences — matching boosts/penalizes based on company domain
+  domain_preferences:
+    strong_fit:                  # Boost: these match your background
+      - "marketplace"
+      - "consumer"
+      - "b2c"
+      - "adtech"
+      - "advertising"
+      - "e-commerce"
+      - "ecommerce"
+      - "platform"
+      - "fintech"
+      - "payments"
+      - "ai"
+      - "machine learning"
+      - "startup"
+      - "media"
+      - "entertainment"
+      - "social"
+      - "search"
+      - "local services"
+    moderate_fit:                # Neutral: transferable
+      - "edtech"
+      - "healthtech"
+      - "logistics"
+      - "mobility"
+      - "food delivery"
+      - "travel"
+      - "real estate"
+    weak_fit:                    # Penalize: not your domain
+      - "b2b saas"
+      - "enterprise software"
+      - "erp"
+      - "crm"
+      - "cybersecurity"
+      - "devtools"
+      - "cloud infrastructure"
+      - "consulting"
+      - "manufacturing"
+
+  # Supplementary context file (your PM stories for richer matching)
+  stories_file: "./data/stories.md"
 
 lead_gen:
   contacts_per_job: 3

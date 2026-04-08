@@ -89,7 +89,8 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
 
             # Index resume into vector store for RAG
             vectorstore = ResumeVectorStore(config, emb)
-            vectorstore.index_profile(candidate_profile)
+            stories_file = config.get("matching", {}).get("stories_file", "")
+            vectorstore.index_profile(candidate_profile, stories_file=stories_file)
         else:
             progress.fail_stage(", ".join(profile_result.errors))
             vectorstore = None

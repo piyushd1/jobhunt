@@ -58,7 +58,9 @@ class MatchingAgent(BaseAgent):
         self.profile = profile
 
         match_config = config.get("matching", {})
-        self.weights = match_config.get("weights", {"skills": 0.60, "experience": 0.25, "location": 0.15})
+        self.weights = match_config.get("weights", {
+            "skills": 0.50, "experience": 0.20, "location": 0.15, "domain": 0.15
+        })
         self.mandatory_cap = match_config.get("mandatory_skill_cap", 65)
 
         # Role priority tiers from config
@@ -66,6 +68,12 @@ class MatchingAgent(BaseAgent):
         self.tier1_roles = [r.lower() for r in role_priority.get("tier1", [])]
         self.tier2_roles = [r.lower() for r in role_priority.get("tier2", [])]
         self.tier3_roles = [r.lower() for r in role_priority.get("tier3", [])]
+
+        # Domain preferences
+        domain_prefs = match_config.get("domain_preferences", {})
+        self.strong_domains = [d.lower() for d in domain_prefs.get("strong_fit", [])]
+        self.moderate_domains = [d.lower() for d in domain_prefs.get("moderate_fit", [])]
+        self.weak_domains = [d.lower() for d in domain_prefs.get("weak_fit", [])]
 
         # Candidate data
         self.candidate_skills = set(profile.get("all_skills_canonical", []))
@@ -175,11 +183,15 @@ class MatchingAgent(BaseAgent):
         else:
             location_score = 0.5  # Unknown location
 
+        # Domain fit — check JD text and company for domain signals
+        domain_score = self._compute_domain_fit(job)
+
         # Weighted total
         total = 100 * (
-            self.weights["skills"] * skill_score +
-            self.weights["experience"] * experience_score +
-            self.weights["location"] * location_score
+            self.weights.get("skills", 0.50) * skill_score +
+            self.weights.get("experience", 0.20) * experience_score +
+            self.weights.get("location", 0.15) * location_score +
+            self.weights.get("domain", 0.15) * domain_score
         )
 
         # Mandatory skill cap
@@ -204,6 +216,7 @@ class MatchingAgent(BaseAgent):
             "skill_score": round(skill_score * 100, 1),
             "experience_score": round(experience_score * 100, 1),
             "location_score": round(location_score * 100, 1),
+            "domain_score": round(domain_score * 100, 1),
             "matched_skills": list(matched),
             "missing_skills": list(missing),
             "role_tier": role_tier,
@@ -262,6 +275,36 @@ Analyze this match."""
         if match:
             return int(match.group(1))
         return None
+
+    def _compute_domain_fit(self, job: dict) -> float:
+        """Score how well a job's domain matches the candidate's background.
+
+        Checks JD text, company name, and title for domain signals.
+        Returns: 0.0 (weak fit) to 1.0 (strong fit).
+        """
+        # Build a text blob to scan for domain signals
+        text = " ".join([
+            (job.get("title") or ""),
+            (job.get("company") or ""),
+            (job.get("full_description") or ""),
+            (job.get("jd_summary") or ""),
+        ]).lower()
+
+        # Check strong fit domains
+        strong_hits = sum(1 for d in self.strong_domains if d in text)
+        weak_hits = sum(1 for d in self.weak_domains if d in text)
+        moderate_hits = sum(1 for d in self.moderate_domains if d in text)
+
+        if strong_hits > 0 and weak_hits == 0:
+            return 1.0      # Clear strong domain match
+        elif strong_hits > 0 and weak_hits > 0:
+            return 0.7      # Mixed signals — some overlap
+        elif moderate_hits > 0 and weak_hits == 0:
+            return 0.6      # Transferable domain
+        elif weak_hits > 0 and strong_hits == 0:
+            return 0.2      # Weak domain fit (e.g., pure B2B SaaS)
+        else:
+            return 0.5      # Unknown domain — neutral
 
     def _get_role_tier(self, title: str) -> int:
         """Determine which priority tier a job title falls into.
