@@ -103,7 +103,9 @@ search:
   experience_min: 7                  # Minimum years you're targeting
   experience_max: 13                 # Maximum years you're targeting
   experience_buffer: 2               # Accept jobs ±2 years outside range (5-7 and 13-15 qualify)
-  max_results_per_portal: 25
+  max_results_per_portal: 75         # Increased for 3 pages
+  pages_per_search: 3                # How many pages to scrape per keyword+location combo
+  max_age_days: 15                   # Only source jobs posted within this many days
 
 portals:
   linkedin:

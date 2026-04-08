@@ -35,23 +35,33 @@ class NaukriAdapter(PortalAdapter):
                 if len(jobs) >= self.max_results:
                     break
 
-                url = self._build_search_url(keyword, location, experience)
-                logger.info("naukri_searching", keyword=keyword, location=location)
+                for page_num in range(self.pages_per_search):
+                    if len(jobs) >= self.max_results:
+                        break
 
-                try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                    await human_delay(2, 4)
-                    await random_scroll(page, scrolls=2)
+                    url = self._build_search_url(keyword, location, experience, page_num=page_num)
+                    logger.info("naukri_searching", keyword=keyword, location=location,
+                                page=page_num + 1, total_so_far=len(jobs))
 
-                    page_jobs = await self._extract_jobs(page)
-                    jobs.extend(page_jobs)
-                    logger.info("naukri_keyword_done", keyword=keyword, location=location, found=len(page_jobs))
+                    try:
+                        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                        await human_delay(2, 4)
+                        await random_scroll(page, scrolls=2)
 
-                except Exception as e:
-                    logger.warning("naukri_search_failed", keyword=keyword, location=location, error=str(e))
-                    continue
+                        page_jobs = await self._extract_jobs(page)
+                        if not page_jobs:
+                            break
 
-                await human_delay(3, 5)
+                        jobs.extend(page_jobs)
+                        logger.info("naukri_page_done", keyword=keyword, location=location,
+                                    page=page_num + 1, found=len(page_jobs))
+
+                    except Exception as e:
+                        logger.warning("naukri_search_failed", keyword=keyword, location=location,
+                                        page=page_num + 1, error=str(e))
+                        break
+
+                    await human_delay(3, 5)
 
         seen_urls = set()
         unique_jobs = []
@@ -142,15 +152,23 @@ class NaukriAdapter(PortalAdapter):
             source="Naukri",
         )
 
-    def _build_search_url(self, keyword: str, location: str, experience: int) -> str:
-        """Build Naukri job search URL."""
-        # Naukri uses hyphenated keywords in URL
+    def _build_search_url(self, keyword: str, location: str, experience: int,
+                           page_num: int = 0) -> str:
+        """Build Naukri job search URL with pagination and date filter.
+
+        Naukri date filters: 1 = last day, 3 = last 3 days, 7 = last week, 15 = last 15 days
+        Pagination: page number appended to URL
+        """
         kw_slug = keyword.lower().replace(" ", "-")
         loc_slug = location.lower().replace(" ", "-")
-        return (
+        url = (
             f"{self.base_url}/{kw_slug}-jobs-in-{loc_slug}"
             f"?experience={experience}"
+            f"&jobAge={self.max_age_days}"
         )
+        if page_num > 0:
+            url += f"&pageNo={page_num + 1}"
+        return url
 
     @staticmethod
     def _extract_job_urls(html: str) -> list[str]:

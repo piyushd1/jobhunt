@@ -36,7 +36,18 @@ class WellfoundAdapter(PortalAdapter):
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                     await human_delay(2, 4)
-                    await random_scroll(page, scrolls=3)
+
+                    # Wellfound uses infinite scroll — scroll multiple times to load more
+                    for page_num in range(self.pages_per_search):
+                        if len(jobs) >= self.max_results:
+                            break
+
+                        logger.info("wellfound_scroll_page", keyword=keyword,
+                                    location=location, page=page_num + 1,
+                                    total_so_far=len(jobs))
+
+                        await random_scroll(page, scrolls=3)
+                        await human_delay(2, 3)
 
                     page_jobs = await self._extract_jobs(page)
                     jobs.extend(page_jobs)
@@ -122,7 +133,16 @@ class WellfoundAdapter(PortalAdapter):
         return RawJob(url=url, title=title, company=company, location=location, source="Wellfound")
 
     def _build_search_url(self, keyword: str, location: str) -> str:
-        return f"{self.base_url}?role={quote_plus(keyword)}&location={quote_plus(location)}"
+        """Build Wellfound job search URL with date filter.
+
+        Date filter: datePosted=month (Wellfound only supports broad date filters)
+        Pagination: Wellfound uses infinite scroll, handled via scroll loops in scrape().
+        """
+        return (
+            f"{self.base_url}?role={quote_plus(keyword)}"
+            f"&location={quote_plus(location)}"
+            f"&datePosted=month"
+        )
 
     @staticmethod
     def _extract_job_urls(html: str) -> list[str]:

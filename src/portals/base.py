@@ -43,14 +43,15 @@ class PortalAdapter(ABC):
         portal_config = config.get("portals", {}).get(self.name, {})
         self.base_url = portal_config.get("base_url", self.base_url)
         self.search_config = config.get("search", {})
-        self.max_results = self.search_config.get("max_results_per_portal", 25)
+        self.max_results = self.search_config.get("max_results_per_portal", 75)
+        self.pages_per_search = self.search_config.get("pages_per_search", 3)
+        self.max_age_days = self.search_config.get("max_age_days", 15)
 
     def get_locations(self) -> list[str]:
         """Get search locations from config. Supports both single and multi-location."""
         locations = self.search_config.get("locations", [])
         if locations:
             return locations
-        # Backward compat: single location string
         single = self.search_config.get("location", "India")
         return [single] if single else ["India"]
 

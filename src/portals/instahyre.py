@@ -41,7 +41,18 @@ class InstahyreAdapter(PortalAdapter):
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                     await human_delay(2, 4)
-                    await random_scroll(page, scrolls=3)
+
+                    # Instahyre uses infinite scroll — scroll multiple times to load more
+                    for page_num in range(self.pages_per_search):
+                        if len(jobs) >= self.max_results:
+                            break
+
+                        logger.info("instahyre_scroll_page", keyword=keyword,
+                                    location=location, page=page_num + 1,
+                                    total_so_far=len(jobs))
+
+                        await random_scroll(page, scrolls=3)
+                        await human_delay(2, 3)
 
                     page_jobs = await self._extract_jobs(page)
                     jobs.extend(page_jobs)
@@ -194,13 +205,18 @@ class InstahyreAdapter(PortalAdapter):
         )
 
     def _build_search_url(self, keyword: str, location: str) -> str:
-        """Build Instahyre opportunities search URL."""
+        """Build Instahyre opportunities search URL with date filter.
+
+        Date filter: posted_days={days}
+        Pagination: Instahyre uses infinite scroll, handled via scroll loops in scrape().
+        """
         encoded_keyword = quote_plus(keyword)
         encoded_location = quote_plus(location)
         return (
             f"{self.base_url}"
             f"?search={encoded_keyword}"
             f"&location={encoded_location}"
+            f"&posted_days={self.max_age_days}"
         )
 
     @staticmethod

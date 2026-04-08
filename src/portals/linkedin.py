@@ -35,23 +35,34 @@ class LinkedInAdapter(PortalAdapter):
                 if len(jobs) >= self.max_results:
                     break
 
-                url = self._build_search_url(keyword, location)
-                logger.info("linkedin_searching", keyword=keyword, location=location)
+                # Paginate through multiple pages per keyword+location
+                for page_num in range(self.pages_per_search):
+                    if len(jobs) >= self.max_results:
+                        break
 
-                try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                    await human_delay(2, 4)
-                    await random_scroll(page, scrolls=3)
+                    url = self._build_search_url(keyword, location, page_num=page_num)
+                    logger.info("linkedin_searching", keyword=keyword, location=location,
+                                page=page_num + 1, total_so_far=len(jobs))
 
-                    page_jobs = await self._extract_jobs(page, keyword)
-                    jobs.extend(page_jobs)
-                    logger.info("linkedin_keyword_done", keyword=keyword, location=location, found=len(page_jobs))
+                    try:
+                        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                        await human_delay(2, 4)
+                        await random_scroll(page, scrolls=3)
 
-                except Exception as e:
-                    logger.warning("linkedin_search_failed", keyword=keyword, location=location, error=str(e))
-                    continue
+                        page_jobs = await self._extract_jobs(page, keyword)
+                        if not page_jobs:
+                            break  # No more results on this page
 
-                await human_delay(3, 6)
+                        jobs.extend(page_jobs)
+                        logger.info("linkedin_page_done", keyword=keyword, location=location,
+                                    page=page_num + 1, found=len(page_jobs))
+
+                    except Exception as e:
+                        logger.warning("linkedin_search_failed", keyword=keyword,
+                                        location=location, page=page_num + 1, error=str(e))
+                        break  # Stop paginating on error
+
+                    await human_delay(3, 6)
 
         # Deduplicate by URL
         seen_urls = set()
@@ -146,14 +157,27 @@ class LinkedInAdapter(PortalAdapter):
             source="LinkedIn",
         )
 
-    def _build_search_url(self, keyword: str, location: str) -> str:
-        """Build LinkedIn jobs search URL."""
+    def _build_search_url(self, keyword: str, location: str, page_num: int = 0) -> str:
+        """Build LinkedIn jobs search URL with date filter and pagination.
+
+        LinkedIn date filters (f_TPR):
+          r86400   = past 24 hours
+          r604800  = past week
+          r1296000 = past 15 days (custom)
+          r2592000 = past month
+        Pagination: start=0, 25, 50, ...
+        """
         encoded_keyword = quote_plus(keyword)
         encoded_location = quote_plus(location)
+        # Convert max_age_days to seconds for LinkedIn's f_TPR parameter
+        age_seconds = self.max_age_days * 86400
+        start = page_num * 25  # LinkedIn shows 25 results per page
         return (
             f"{self.base_url}?keywords={encoded_keyword}"
             f"&location={encoded_location}"
-            f"&sortBy=DD"  # Sort by date
+            f"&sortBy=DD"
+            f"&f_TPR=r{age_seconds}"
+            f"&start={start}"
         )
 
     @staticmethod
