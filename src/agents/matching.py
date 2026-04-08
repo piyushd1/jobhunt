@@ -61,6 +61,12 @@ class MatchingAgent(BaseAgent):
         self.weights = match_config.get("weights", {"skills": 0.60, "experience": 0.25, "location": 0.15})
         self.mandatory_cap = match_config.get("mandatory_skill_cap", 65)
 
+        # Role priority tiers from config
+        role_priority = config.get("search", {}).get("role_priority", {})
+        self.tier1_roles = [r.lower() for r in role_priority.get("tier1", [])]
+        self.tier2_roles = [r.lower() for r in role_priority.get("tier2", [])]
+        self.tier3_roles = [r.lower() for r in role_priority.get("tier3", [])]
+
         # Candidate data
         self.candidate_skills = set(profile.get("all_skills_canonical", []))
         self.candidate_years = profile.get("total_experience_years", 0)
@@ -182,6 +188,15 @@ class MatchingAgent(BaseAgent):
             if missing_ratio > 0.5:
                 total = min(total, self.mandatory_cap)
 
+        # Role priority boost/penalty
+        role_tier = self._get_role_tier(job.get("title", ""))
+        if role_tier == 1:
+            total = min(total * 1.10, 100)   # +10% boost for tier 1
+        elif role_tier == 2:
+            pass                              # No change for tier 2
+        elif role_tier == 3:
+            total = total * 0.90              # -10% for tier 3
+
         total = round(min(total, 100), 1)
 
         return {
@@ -191,6 +206,7 @@ class MatchingAgent(BaseAgent):
             "location_score": round(location_score * 100, 1),
             "matched_skills": list(matched),
             "missing_skills": list(missing),
+            "role_tier": role_tier,
         }
 
     async def _llm_enhance(self, job: dict, scores: dict) -> dict:
@@ -246,3 +262,17 @@ Analyze this match."""
         if match:
             return int(match.group(1))
         return None
+
+    def _get_role_tier(self, title: str) -> int:
+        """Determine which priority tier a job title falls into.
+
+        Returns: 1 (best fit), 2 (good fit), 3 (open to), 0 (unknown)
+        """
+        title_lower = title.lower().strip()
+        if any(role in title_lower for role in self.tier1_roles):
+            return 1
+        if any(role in title_lower for role in self.tier2_roles):
+            return 2
+        if any(role in title_lower for role in self.tier3_roles):
+            return 3
+        return 0

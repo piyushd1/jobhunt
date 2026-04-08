@@ -10,7 +10,7 @@ llm:
   #   openrouter/deepseek/deepseek-chat-v3-0324    ~$0.27/M tokens (DeepSeek V3.2)
   #
   # Mid-tier (good quality, affordable):
-  #   openrouter/qwen/qwen3.6-plus:free            Free but rate-limited
+  #   openrouter/qwen/qwen3.6-plus            Free but rate-limited
   #   openrouter/anthropic/claude-3.5-haiku         ~$0.80/M in, $4/M out
   #
   # Speed models (fast + cheap, for bulk work):
@@ -19,7 +19,7 @@ llm:
   #   openrouter/free                               Auto-routes to a working free model
 
   # ── Global defaults ──
-  default_model: "openrouter/qwen/qwen3.6-plus:free"
+  default_model: "openrouter/qwen/qwen3.6-plus"
   fallback_model: "openrouter/free"
   temperature: 0.3
   max_retries: 3
@@ -30,20 +30,20 @@ llm:
   # All OpenRouter — add Groq models when you have the API key.
   agents:
     resume_profiler:
-      model: "openrouter/deepseek/deepseek-chat-v3-0324"   # Strong reasoning, runs once
-      fallback: "openrouter/qwen/qwen3.6-plus:free"
+      model: "openrouter/deepseek/deepseek-v3.2"   # Strong reasoning, runs once
+      fallback: "openrouter/xiaomi/mimo-v2-pro"
     parsing:
-      model: "openrouter/qwen/qwen3.6-plus:free"           # Structured extraction, 40+ calls
-      fallback: "openrouter/free"
+      model: "openrouter/xiaomi/mimo-v2-pro"           # Structured extraction, 40+ calls
+      fallback: "minimax/minimax-m2.7"
     matching:
-      model: "openrouter/deepseek/deepseek-chat-v3-0324"   # Best reasoning for scoring
-      fallback: "openrouter/qwen/qwen3.6-plus:free"
+      model: "openrouter/deepseek/deepseek-v3.2"   # Best reasoning for scoring
+      fallback: "openrouter/xiaomi/mimo-v2-pro"
     leadgen:
-      model: "openrouter/qwen/qwen3.6-plus:free"
-      fallback: "openrouter/free"
+      model: "openrouter/xiaomi/mimo-v2-pro"
+      fallback: "minimax/minimax-m2.7"
     messaging:
-      model: "openrouter/qwen/qwen3.6-plus:free"           # Good writing quality
-      fallback: "openrouter/free"
+      model: "openrouter/xiaomi/mimo-v2-pro"           # Good writing quality
+      fallback: "minimax/minimax-m2.7"
 
   # Embedding model for resume RAG (ChromaDB)
   embedding:
@@ -57,13 +57,44 @@ browser:
   timeout: 30000                 # ms page load timeout
 
 search:
+  # Keywords searched per portal, grouped by priority.
+  # Higher priority roles get a scoring boost in matching.
   keywords:
+    # Priority 1: Product Management (core target)
     - "Product Manager"
     - "Senior Product Manager"
     - "Group Product Manager"
-    - "Project Manager"
-    - "Program Manager"
     - "Product Owner"
+    # Priority 2: Program/Project Management at tech companies
+    - "Program Manager"
+    - "Project Manager"
+    - "Technical Program Manager"
+    # Priority 3: Business/growth roles at startups
+    - "Growth Product Manager"
+    - "Business Operations Manager"
+
+  # Role priority tiers — matching agent boosts score for higher-priority fits
+  role_priority:
+    tier1:  # Best fit
+      - "product manager"
+      - "senior product manager"
+      - "group product manager"
+      - "product lead"
+      - "head of product"
+      - "product owner"
+    tier2:  # Good fit
+      - "program manager"
+      - "project manager"
+      - "technical program manager"
+      - "senior program manager"
+    tier3:  # Open to
+      - "growth manager"
+      - "business operations"
+      - "growth product manager"
+      - "chief of staff"
+      - "strategy manager"
+      - "general manager"
+
   locations:                         # Searched in order of preference
     - "Bangalore"
     - "Hyderabad"

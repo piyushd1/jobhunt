@@ -1,7 +1,6 @@
 """Google Sheets writer — projects SQLite data into a Google Sheet."""
 
 import json
-from datetime import datetime
 from typing import Optional
 
 import gspread
@@ -16,18 +15,19 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-# Column headers for the Jobs sheet
+# Column headers — ordered by importance (user-facing first, metadata last)
 JOBS_HEADERS = [
-    "Job ID", "Date Found", "Source(s)", "Title", "Company", "Location",
-    "Remote", "Experience", "Portal Links", "Apply Link",
+    "Title", "Company", "Location", "Remote",
     "Match %", "Skill Score", "Exp Score", "Location Score",
     "Matched Skills", "Missing Skills", "Match Summary",
-    "Contact 1 Name", "Contact 1 Title", "Contact 1 LinkedIn",
-    "Contact 2 Name", "Contact 2 Title", "Contact 2 LinkedIn",
-    "Contact 3 Name", "Contact 3 Title", "Contact 3 LinkedIn",
+    "Portal Links", "Apply Link", "Experience",
+    "Contact 1", "Contact 1 Title", "Contact 1 LinkedIn",
+    "Contact 2", "Contact 2 Title", "Contact 2 LinkedIn",
+    "Contact 3", "Contact 3 Title", "Contact 3 LinkedIn",
     "LinkedIn Draft 1", "LinkedIn Draft 2", "LinkedIn Draft 3",
     "Email Draft",
     "Status", "Notes",
+    "Job ID", "Date Found", "Source(s)",
 ]
 
 RUN_LOG_HEADERS = [
@@ -48,77 +48,102 @@ class SheetsWriter:
         logger.info("sheets_connected", sheet_id=sheet_id)
 
     def _get_or_create_worksheet(self, title: str, headers: list[str]) -> gspread.Worksheet:
-        """Get existing worksheet or create with headers."""
+        """Get existing worksheet or create with headers. Always syncs headers."""
         try:
             ws = self.spreadsheet.worksheet(title)
+            # Sync headers — update row 1 if headers changed
+            existing_headers = ws.row_values(1)
+            if existing_headers != headers:
+                ws.update("A1", [headers])
+                logger.info("worksheet_headers_updated", title=title)
         except gspread.WorksheetNotFound:
             ws = self.spreadsheet.add_worksheet(title=title, rows=1000, cols=len(headers))
-            ws.append_row(headers)
+            ws.update("A1", [headers])
             logger.info("worksheet_created", title=title)
         return ws
 
     def write_jobs(self, jobs: list[dict], contacts_by_job: dict, drafts_by_job: dict) -> int:
-        """Write all jobs to the Jobs sheet. Returns number of rows written."""
+        """Write all jobs to the Jobs sheet, sorted by Match % descending."""
         ws = self._get_or_create_worksheet("Jobs", JOBS_HEADERS)
 
-        # Clear existing data (keep header)
+        # Clear existing data (keep header row)
         if ws.row_count > 1:
             ws.delete_rows(2, ws.row_count)
 
+        # Sort by match score descending (unscored at bottom)
+        sorted_jobs = sorted(jobs, key=lambda j: j.get("match_score") or 0, reverse=True)
+
         rows = []
-        for job in jobs:
+        for job in sorted_jobs:
             contacts = contacts_by_job.get(job["id"], [])
             drafts = drafts_by_job.get(job["id"], [])
 
             # Format portal links
-            source_urls = json.loads(job.get("source_urls", "{}")) if job.get("source_urls") else {}
-            portal_links = "\n".join(f"{k}: {v}" for k, v in source_urls.items()) if source_urls else job.get("url", "")
+            source_urls = _safe_json_loads(job.get("source_urls", "{}"), {})
+            if source_urls:
+                portal_links = "\n".join(f"{k}: {v}" for k, v in source_urls.items())
+            else:
+                portal_links = job.get("url", "")
 
-            # Format skills as comma-separated
-            matched = _parse_json_field(job.get("matched_skills", "[]"))
-            missing = _parse_json_field(job.get("missing_skills", "[]"))
+            # Format skills
+            matched = _safe_json_loads(job.get("matched_skills", "[]"), [])
+            missing = _safe_json_loads(job.get("missing_skills", "[]"), [])
 
             row = [
-                job.get("id", ""),
-                job.get("created_at", ""),
-                job.get("source", ""),
+                # Core job info
                 job.get("title", ""),
                 job.get("company", ""),
                 job.get("location", ""),
                 job.get("remote", ""),
-                job.get("experience_required", ""),
-                portal_links,
-                job.get("apply_url", ""),
-                job.get("match_score", ""),
-                job.get("skill_score", ""),
-                job.get("experience_score", ""),
-                job.get("location_score", ""),
+                # Scores
+                job.get("match_score") or "",
+                job.get("skill_score") or "",
+                job.get("experience_score") or "",
+                job.get("location_score") or "",
+                # Skills — NO truncation
                 ", ".join(matched) if isinstance(matched, list) else str(matched),
                 ", ".join(missing) if isinstance(missing, list) else str(missing),
-                _truncate(job.get("match_summary", ""), 300),
+                # Match summary — generous limit
+                _truncate(job.get("match_summary", ""), 1000),
+                # Links
+                portal_links,
+                job.get("apply_url", ""),
+                job.get("experience_required", ""),
             ]
 
-            # Add up to 3 contacts
+            # Contacts (up to 3)
             for i in range(3):
                 if i < len(contacts):
                     c = contacts[i]
-                    row.extend([c.get("name", ""), c.get("title", ""), c.get("linkedin_url", "")])
+                    row.extend([
+                        c.get("name", ""),
+                        c.get("title", ""),
+                        c.get("linkedin_url", ""),
+                    ])
                 else:
                     row.extend(["", "", ""])
 
-            # Add drafts for each contact
+            # LinkedIn drafts (one per contact)
             contact_drafts = {d.get("contact_id"): d for d in drafts}
             for i in range(3):
                 if i < len(contacts) and contacts[i]["id"] in contact_drafts:
-                    row.append(_truncate(contact_drafts[contacts[i]["id"]].get("linkedin_note", ""), 300))
+                    row.append(contact_drafts[contacts[i]["id"]].get("linkedin_note", ""))
                 else:
                     row.append("")
 
-            # Email draft (first one found)
+            # Email draft
             email_draft = next((d.get("email_body", "") for d in drafts if d.get("email_body")), "")
-            row.append(_truncate(email_draft, 500))
+            row.append(email_draft)
 
-            row.extend([job.get("status", "new"), job.get("notes", "")])
+            # Status + notes + metadata (at the end)
+            row.extend([
+                job.get("status", "new"),
+                job.get("notes", ""),
+                job.get("id", ""),
+                (job.get("created_at") or "")[:10],  # Date only
+                job.get("source", ""),
+            ])
+
             rows.append(row)
 
         if rows:
@@ -150,13 +175,13 @@ class SheetsWriter:
 def _truncate(text: str, max_len: int) -> str:
     if not text:
         return ""
-    return text[:max_len] + "..." if len(text) > max_len else text
+    return text[:max_len] if len(text) <= max_len else text[:max_len - 3] + "..."
 
 
-def _parse_json_field(value: str):
+def _safe_json_loads(value, default):
     if not value:
-        return []
+        return default
     try:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):
-        return value
+        return value if value else default

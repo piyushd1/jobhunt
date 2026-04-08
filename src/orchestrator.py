@@ -8,7 +8,9 @@ from typing import Optional
 import structlog
 
 from src.agents.base import AgentResult
+from src.agents.leadgen import LeadGenAgent
 from src.agents.matching import MatchingAgent
+from src.agents.messaging import MessagingAgent
 from src.agents.parsing import ParsingAgent
 from src.agents.resume_profiler import ResumeProfiler
 from src.agents.sourcing import SourcingAgent
@@ -234,7 +236,48 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
         else:
             logger.warning("matching_skipped", reason="no profile or vectorstore")
 
-        # ── Step 5: Write to Google Sheets (with scores now) ──
+        # ── Step 5: Lead Gen (find contacts at shortlisted companies) ──
+        async with browser_context(config) as ctx:
+            shortlisted = db.get_jobs(parse_status="parsed",
+                                      min_score=config.get("matching", {}).get("shortlist_threshold", 70))
+            jobs_needing_contacts = [j for j in shortlisted if not db.get_contacts_for_job(j["id"])]
+
+            if jobs_needing_contacts:
+                progress.start_stage("Lead Gen", total=len(jobs_needing_contacts))
+                with metrics.track_agent("leadgen", items_in=len(jobs_needing_contacts)) as m:
+                    leadgen = LeadGenAgent(config, db, ctx)
+                    leadgen_result = await leadgen.run()
+                    m.items_out = leadgen_result.count
+                    m.errors.extend(leadgen_result.errors)
+                    summary["contacts_found"] = leadgen_result.count
+                progress.complete_stage(done=leadgen_result.count, errors=len(leadgen_result.errors))
+            else:
+                logger.info("leadgen_skipped", reason="no new shortlisted jobs need contacts")
+
+        # ── Step 6: Messaging (draft outreach for contacts) ──
+        if candidate_profile and vectorstore:
+            # Check if there are contacts without drafts
+            all_contacts_count = 0
+            for job in db.get_jobs(parse_status="parsed"):
+                contacts = db.get_contacts_for_job(job["id"])
+                for c in contacts:
+                    drafts = db.get_drafts_for_job(job["id"])
+                    if c["id"] not in {d.get("contact_id") for d in drafts}:
+                        all_contacts_count += 1
+
+            if all_contacts_count > 0:
+                progress.start_stage("Drafting Messages", total=all_contacts_count)
+                with metrics.track_agent("messaging", items_in=all_contacts_count) as m:
+                    messenger = MessagingAgent(config, db, llm, vectorstore, candidate_profile)
+                    msg_result = await messenger.run()
+                    m.items_out = msg_result.count
+                    m.errors.extend(msg_result.errors)
+                    summary["drafts_created"] = msg_result.count
+                progress.complete_stage(done=msg_result.count, errors=len(msg_result.errors))
+            else:
+                logger.info("messaging_skipped", reason="no contacts need drafts")
+
+        # ── Step 7: Write to Google Sheets (full data now) ──
         progress.start_stage("Google Sheets", total=1)
         try:
             sheets_config = config.get("sheets", {})
@@ -244,8 +287,14 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
                     sheets_config["sheet_id"],
                 )
                 all_jobs = db.get_jobs()
+
+                # Build contacts and drafts lookup
                 contacts_by_job = {}
                 drafts_by_job = {}
+                for job in all_jobs:
+                    contacts_by_job[job["id"]] = db.get_contacts_for_job(job["id"])
+                    drafts_by_job[job["id"]] = db.get_drafts_for_job(job["id"])
+
                 rows_written = writer.write_jobs(all_jobs, contacts_by_job, drafts_by_job)
                 progress.complete_stage(done=rows_written)
                 progress.update_stage(detail=f"{rows_written} rows written")
