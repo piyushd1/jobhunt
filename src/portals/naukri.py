@@ -27,7 +27,7 @@ class NaukriAdapter(PortalAdapter):
     async def scrape(self, page: Page) -> list[RawJob]:
         keywords = self.search_config.get("keywords", [])
         locations = self.get_locations()
-        experience = self.search_config.get("experience_years", 5)
+        experience = self.search_config.get("experience_min", self.search_config.get("experience_years", 5))
         jobs: list[RawJob] = []
 
         for location in locations:

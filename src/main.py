@@ -14,6 +14,9 @@ Usage:
     python -m src blacklist add keyword intern  # Block a title keyword
     python -m src blacklist show                # Show all blacklist entries
     python -m src blacklist remove <id>         # Remove a blacklist entry
+    python -m src config                        # Show current search config
+    python -m src config exp 7 13               # Set experience filter (7-13 years)
+    python -m src config exp off                # Disable experience filter
 """
 
 import asyncio
@@ -365,6 +368,63 @@ def _short_model(model: str) -> str:
     return parts[-1] if len(parts) > 1 else model
 
 
+def cmd_config():
+    """Show or update search configuration."""
+    config = load_config()
+    search = config.get("search", {})
+
+    if len(sys.argv) < 3:
+        # Show current config
+        table = Table(title="Search Configuration", border_style="blue")
+        table.add_column("Setting", style="cyan")
+        table.add_column("Value", style="white")
+
+        table.add_row("Keywords", ", ".join(search.get("keywords", [])))
+        table.add_row("Locations", ", ".join(search.get("locations", search.get("location", ["India"]))))
+
+        exp_min = search.get("experience_min", 0)
+        exp_max = search.get("experience_max", 99)
+        exp_buf = search.get("experience_buffer", 2)
+        if exp_max < 99:
+            table.add_row("Experience target", f"{exp_min}-{exp_max} years")
+            table.add_row("Experience buffer", f"±{exp_buf} years (accepts {max(0,exp_min-exp_buf)}-{exp_max+exp_buf})")
+        else:
+            table.add_row("Experience filter", "OFF (all experience levels)")
+
+        table.add_row("Max results/portal", str(search.get("max_results_per_portal", 25)))
+        table.add_row("Enabled portals", ", ".join(get_enabled_portals(config)))
+        console.print(table)
+        return
+
+    subcmd = sys.argv[2].lower()
+
+    if subcmd == "exp":
+        import yaml
+        config_path = "config.yaml"
+        with open(config_path) as f:
+            raw = yaml.safe_load(f)
+
+        if len(sys.argv) > 3 and sys.argv[3].lower() == "off":
+            raw["search"]["experience_min"] = 0
+            raw["search"]["experience_max"] = 99
+            with open(config_path, "w") as f:
+                yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+            console.print("[green]Experience filter disabled — all experience levels accepted.[/]")
+        elif len(sys.argv) >= 5:
+            exp_min = int(sys.argv[3])
+            exp_max = int(sys.argv[4])
+            raw["search"]["experience_min"] = exp_min
+            raw["search"]["experience_max"] = exp_max
+            buf = raw["search"].get("experience_buffer", 2)
+            with open(config_path, "w") as f:
+                yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+            console.print(f"[green]Experience filter set: {exp_min}-{exp_max} years (accepts {max(0,exp_min-buf)}-{exp_max+buf} with buffer)[/]")
+        else:
+            console.print("[yellow]Usage: python -m src config exp <min> <max>  or  python -m src config exp off[/]")
+    else:
+        console.print("[yellow]Usage: python -m src config [exp <min> <max>|exp off][/]")
+
+
 def cmd_blacklist():
     """Manage company and keyword blacklists."""
     config = load_config()
@@ -433,6 +493,7 @@ def main():
     commands = {
         "hunt": cmd_hunt,
         "reset": cmd_reset,
+        "config": cmd_config,
         "blacklist": cmd_blacklist,
         "setup": cmd_setup,
         "status": cmd_status,

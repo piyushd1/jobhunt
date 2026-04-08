@@ -4,6 +4,7 @@ Runs each portal adapter, deduplicates by fingerprint, merges sources
 when the same job appears on multiple portals, and writes to SQLite.
 """
 
+import re
 import uuid
 from typing import Any
 
@@ -80,8 +81,18 @@ class SourcingAgent(BaseAgent):
             elif bl["type"] == "title_keyword":
                 blocked_keywords.add(bl["value"].lower())
 
+        # Experience filter from config
+        search_config = self.config.get("search", {})
+        exp_min = search_config.get("experience_min", 0)
+        exp_max = search_config.get("experience_max", 99)
+        exp_buffer = search_config.get("experience_buffer", 2)
+        # Effective range: (min - buffer) to (max + buffer)
+        effective_min = max(0, exp_min - exp_buffer)
+        effective_max = exp_max + exp_buffer
+
         filtered_jobs = []
         blocked_count = 0
+        exp_filtered_count = 0
         for job in all_jobs:
             company_lower = (job.company or "").lower()
             title_lower = (job.title or "").lower()
@@ -91,10 +102,18 @@ class SourcingAgent(BaseAgent):
             if any(bk in title_lower for bk in blocked_keywords if bk):
                 blocked_count += 1
                 continue
+            # Filter by experience range (if experience info is available)
+            if job.experience_required:
+                if not _experience_in_range(job.experience_required, effective_min, effective_max):
+                    exp_filtered_count += 1
+                    continue
             filtered_jobs.append(job)
 
         if blocked_count:
             logger.info("sourcing_blacklist_filtered", blocked=blocked_count)
+        if exp_filtered_count:
+            logger.info("sourcing_experience_filtered", filtered=exp_filtered_count,
+                         range=f"{effective_min}-{effective_max} years")
 
         # Deduplicate and write to DB
         new_count = 0
@@ -136,5 +155,40 @@ class SourcingAgent(BaseAgent):
             data={"new_jobs": new_count, "merged": merged_count, "portal_stats": portal_stats},
             count=new_count,
             errors=errors,
-            metadata={"total_scraped": len(all_jobs)},
+            metadata={"total_scraped": len(all_jobs), "exp_filtered": exp_filtered_count},
         )
+
+
+def _experience_in_range(exp_str: str, min_years: int, max_years: int) -> bool:
+    """Check if a job's experience requirement overlaps with the target range.
+
+    Handles formats like: "5-8 years", "3+ years", "7 years", "5 to 10 yrs",
+    "Senior (8-12 years)", "Minimum 5 years".
+
+    A job qualifies if ANY part of its range overlaps with [min_years, max_years].
+    E.g., "5-8 years" overlaps with 7-13 range → True
+    E.g., "1-3 years" does NOT overlap with 5-15 range → False
+    """
+    if not exp_str:
+        return True  # Unknown experience → don't filter out
+
+    # Try to extract numbers from the experience string
+    numbers = re.findall(r'(\d+)', exp_str)
+    if not numbers:
+        return True  # Can't parse → don't filter out
+
+    nums = [int(n) for n in numbers if int(n) <= 50]  # Ignore numbers that aren't years
+    if not nums:
+        return True
+
+    if len(nums) >= 2:
+        # Range like "5-8 years" or "3 to 7 years"
+        job_min = min(nums[:2])
+        job_max = max(nums[:2])
+    else:
+        # Single number like "5+ years" or "minimum 5 years"
+        job_min = nums[0]
+        job_max = nums[0] + 2  # Assume a 2-year band above stated minimum
+
+    # Check if ranges overlap: [job_min, job_max] ∩ [min_years, max_years]
+    return job_min <= max_years and job_max >= min_years
