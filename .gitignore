@@ -14,8 +14,11 @@ env/
 
 # Secrets
 .env
+credentials/*.json
 
 # Data (local only)
+data/resume.pdf
+data/stories.md
 data/browser_profile/
 data/job_hunt.db
 data/candidate_profile.json
@@ -27,7 +30,6 @@ data/chroma/
 .idea/
 *.swp
 *.swo
-CLAUDE.md
 
 # OS
 .DS_Store

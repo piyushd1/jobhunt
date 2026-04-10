@@ -67,11 +67,7 @@ search:
     - "Product Owner"
     # Priority 2: Program/Project Management at tech companies
     - "Program Manager"
-    - "Project Manager"
     - "Technical Program Manager"
-    # Priority 3: Business/growth roles at startups
-    - "Growth Product Manager"
-    - "Business Operations Manager"
 
   # Role priority tiers — matching agent boosts score for higher-priority fits
   role_priority:
@@ -84,7 +80,6 @@ search:
       - "product owner"
     tier2:  # Good fit
       - "program manager"
-      - "project manager"
       - "technical program manager"
       - "senior program manager"
     tier3:  # Open to
@@ -94,6 +89,22 @@ search:
       - "chief of staff"
       - "strategy manager"
       - "general manager"
+
+  # Precision-first role scope
+  allowed_role_families:
+    - "pm_core"
+    - "tpm_pgm"
+  excluded_title_keywords:
+    - "project manager"
+    - "project lead"
+    - "scrum master"
+    - "business operations"
+    - "chief of staff"
+    - "growth manager"
+    - "growth marketing"
+    - "sales"
+    - "intern"
+    - "fresher"
 
   locations:                         # Searched in order of preference
     - "Bangalore"
@@ -139,14 +150,17 @@ portals:
     scan_hours: 24
 
 matching:
+  precision_mode: "high_precision"
   shortlist_threshold: 70        # Lead gen only for scores >= this
-  sheet_min_score: 50            # Only jobs >= this appear in Google Sheet (targets 20-40 jobs)
+  sheet_min_score: 60            # Precision-first sheet projection threshold
   max_shortlist_per_day: 20
   weights:
-    skills: 0.35
+    required_skills: 0.25
+    preferred_skills: 0.10
     experience: 0.15
-    location: 0.15
-    domain: 0.35                 # Domain + work-pattern fit is THE differentiator
+    location: 0.10
+    domain: 0.25                 # Domain + work-pattern fit is THE differentiator
+    role_fit: 0.15
   mandatory_skill_cap: 55
 
   # ── RESUME MATCH SIGNALS ──

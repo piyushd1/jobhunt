@@ -17,6 +17,7 @@ dependencies = [
     "python-telegram-bot>=20.0",
     "pyyaml>=6.0",
     "structlog>=24.0.0",
+    "rich>=13.0.0",
     "pdfplumber>=0.10.0",
     "python-dotenv>=1.0.0",
     "sentence-transformers>=3.0.0",

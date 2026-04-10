@@ -22,17 +22,29 @@ CREATE TABLE IF NOT EXISTS jobs (
     company TEXT,
     location TEXT,
     remote TEXT,
+    snippet TEXT,
+    posted_date TEXT,
     experience_required TEXT,
     skills_required TEXT,          -- JSON array
+    required_skills TEXT,          -- JSON array
+    preferred_skills TEXT,         -- JSON array
     full_description TEXT,
     jd_summary TEXT,
     match_score REAL,
     skill_score REAL,
+    required_skill_score REAL,
+    preferred_skill_score REAL,
     experience_score REAL,
     location_score REAL,
+    domain_score REAL,
+    role_fit_score REAL,
     matched_skills TEXT,           -- JSON array
     missing_skills TEXT,           -- JSON array
     match_summary TEXT,
+    role_family_hint TEXT,
+    role_family TEXT,
+    fit_bucket TEXT,
+    penalty_reasons TEXT,          -- JSON array
     status TEXT DEFAULT 'new',
     parse_status TEXT DEFAULT 'pending',  -- pending/parsed/failed
     notes TEXT,
@@ -105,6 +117,21 @@ CREATE TABLE IF NOT EXISTS blacklist (
 );
 """
 
+JOB_COLUMN_MIGRATIONS = {
+    "snippet": "ALTER TABLE jobs ADD COLUMN snippet TEXT",
+    "posted_date": "ALTER TABLE jobs ADD COLUMN posted_date TEXT",
+    "required_skills": "ALTER TABLE jobs ADD COLUMN required_skills TEXT",
+    "preferred_skills": "ALTER TABLE jobs ADD COLUMN preferred_skills TEXT",
+    "required_skill_score": "ALTER TABLE jobs ADD COLUMN required_skill_score REAL",
+    "preferred_skill_score": "ALTER TABLE jobs ADD COLUMN preferred_skill_score REAL",
+    "domain_score": "ALTER TABLE jobs ADD COLUMN domain_score REAL",
+    "role_fit_score": "ALTER TABLE jobs ADD COLUMN role_fit_score REAL",
+    "role_family_hint": "ALTER TABLE jobs ADD COLUMN role_family_hint TEXT",
+    "role_family": "ALTER TABLE jobs ADD COLUMN role_family TEXT",
+    "fit_bucket": "ALTER TABLE jobs ADD COLUMN fit_bucket TEXT",
+    "penalty_reasons": "ALTER TABLE jobs ADD COLUMN penalty_reasons TEXT",
+}
+
 
 class Database:
     """SQLite database wrapper for job hunt data."""
@@ -119,7 +146,18 @@ class Database:
 
     def _init_schema(self) -> None:
         self.conn.executescript(SCHEMA)
+        self._ensure_job_columns()
         self.conn.commit()
+
+    def _ensure_job_columns(self) -> None:
+        """Apply additive migrations for existing databases."""
+        existing = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(jobs)").fetchall()
+        }
+        for column, ddl in JOB_COLUMN_MIGRATIONS.items():
+            if column not in existing:
+                self.conn.execute(ddl)
 
     def close(self) -> None:
         self.conn.close()
@@ -130,19 +168,26 @@ class Database:
         """Insert a new job. Returns False if duplicate (by fingerprint)."""
         try:
             self.conn.execute(
-                """INSERT INTO jobs (id, fingerprint, source, source_urls, apply_url, url,
-                   title, company, location, remote, experience_required, skills_required,
-                   full_description, jd_summary, status, parse_status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO jobs (
+                   id, fingerprint, source, source_urls, apply_url, url,
+                   title, company, location, remote, snippet, posted_date,
+                   experience_required, skills_required, required_skills, preferred_skills,
+                   full_description, jd_summary, role_family_hint, status, parse_status
+                   )
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     job["id"], job["fingerprint"], job.get("source", ""),
                     json.dumps(job.get("source_urls", {})),
                     job.get("apply_url", ""), job["url"],
                     job.get("title", ""), job.get("company", ""),
                     job.get("location", ""), job.get("remote", ""),
+                    job.get("snippet", ""), job.get("posted_date", ""),
                     job.get("experience_required", ""),
                     json.dumps(job.get("skills_required", [])),
+                    json.dumps(job.get("required_skills", [])),
+                    json.dumps(job.get("preferred_skills", [])),
                     job.get("full_description", ""), job.get("jd_summary", ""),
+                    job.get("role_family_hint", ""),
                     job.get("status", "new"), job.get("parse_status", "pending"),
                 ),
             )
@@ -177,7 +222,15 @@ class Database:
         if not fields:
             return
         # Serialize JSON fields
-        for key in ("skills_required", "matched_skills", "missing_skills", "source_urls"):
+        for key in (
+            "skills_required",
+            "required_skills",
+            "preferred_skills",
+            "matched_skills",
+            "missing_skills",
+            "penalty_reasons",
+            "source_urls",
+        ):
             if key in fields and isinstance(fields[key], (list, dict)):
                 fields[key] = json.dumps(fields[key])
         fields["updated_at"] = datetime.utcnow().isoformat()

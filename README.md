@@ -117,8 +117,10 @@ search:
   keywords:
     - "Product Manager"
     - "Senior Product Manager"
+    - "Group Product Manager"
+    - "Product Owner"
     - "Program Manager"
-    # ... add your target roles
+    - "Technical Program Manager"
   locations:
     - "Bangalore"
     - "Hyderabad"
@@ -130,8 +132,17 @@ search:
 
   role_priority:             # Affects scoring
     tier1: ["product manager", "senior product manager", "product owner"]
-    tier2: ["program manager", "project manager"]
+    tier2: ["program manager", "technical program manager"]
     tier3: ["growth manager", "business operations"]
+
+  allowed_role_families:     # Precision-first ingestion scope
+    - "pm_core"
+    - "tpm_pgm"
+  excluded_title_keywords:
+    - "project manager"
+    - "business operations"
+    - "chief of staff"
+    - "growth manager"
 ```
 
 ### LLM Models (Per-Agent)
@@ -164,12 +175,16 @@ On rate limit errors: tries primary with exponential backoff (5s/15s/45s), then 
 
 ```yaml
 matching:
+  precision_mode: "high_precision"
   weights:
-    skills: 0.50
-    experience: 0.20
-    location: 0.15
-    domain: 0.15            # Marketplace/B2C boost, B2B SaaS penalty
+    required_skills: 0.25
+    preferred_skills: 0.10
+    experience: 0.15
+    location: 0.10
+    domain: 0.25
+    role_fit: 0.15
   shortlist_threshold: 70   # Lead gen only for scores >= this
+  sheet_min_score: 60       # Only jobs >= this appear in Google Sheet
 ```
 
 ### Domain Preferences
@@ -185,15 +200,17 @@ matching:
 ## How Scoring Works
 
 ```
-Match% = 50% SkillOverlap + 20% ExperienceFit + 15% LocationFit + 15% DomainFit
-         + Role tier boost (+10% for PM, -10% for stretch roles)
-         + Mandatory skill cap (65% if >50% required skills missing)
+Match% = 25% RequiredSkills + 10% PreferredSkills + 15% ExperienceFit
+         + 10% LocationFit + 25% DomainFit + 15% RoleFit
+         with caps for severe domain mismatch or missing required skills
 ```
 
-- **Skill overlap**: Canonicalized against a 91-skill PM taxonomy with embedding-based fuzzy matching
+- **Required vs preferred skills**: Stored separately, then scored separately so nice-to-haves do not look mandatory
 - **Experience fit**: Graduated scoring (exact match = 100%, short by 1yr = 75%, short by 2yr = 45%)
 - **Location fit**: Remote = 100%, city match = 100%, hybrid in target city = 70%
-- **Domain fit**: Checks JD text for domain signals (marketplace/B2C = 100%, B2B SaaS = 20%)
+- **Domain fit**: Uses resume-signal matches plus disqualifier clusters to soft-penalize low-fit domains like pure B2B SaaS or core banking
+- **Role fit**: PM core roles score highest; TPM/PgM stays eligible with a slight penalty
+- **Fit buckets**: Jobs are labeled `strong_fit`, `review_fit`, or `weak_fit` for easier sheet review
 - **LLM enhancement**: Retrieves relevant resume chunks via ChromaDB RAG, generates qualitative analysis
 
 ## Portals Supported

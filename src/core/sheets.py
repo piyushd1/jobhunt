@@ -1,7 +1,6 @@
 """Google Sheets writer — projects SQLite data into a Google Sheet."""
 
 import json
-from typing import Optional
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -9,6 +8,12 @@ from google.oauth2.service_account import Credentials
 import structlog
 
 logger = structlog.get_logger()
+
+FIT_BUCKET_ORDER = {
+    "strong_fit": 0,
+    "review_fit": 1,
+    "weak_fit": 2,
+}
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -18,8 +23,10 @@ SCOPES = [
 # Column headers — ordered by importance (user-facing first, metadata last)
 JOBS_HEADERS = [
     "Title", "Company", "Location", "Remote",
-    "Match %", "Skill Score", "Exp Score", "Location Score",
-    "Matched Skills", "Missing Skills", "Match Summary",
+    "Fit Bucket", "Match %", "Role Family",
+    "Req Skill Score", "Pref Skill Score", "Domain Score", "Role Fit Score",
+    "Exp Score", "Location Score",
+    "Matched Skills", "Missing Skills", "Penalty Reasons", "Match Summary",
     "Portal Links", "Apply Link", "Experience",
     "Contact 1", "Contact 1 Title", "Contact 1 LinkedIn",
     "Contact 2", "Contact 2 Title", "Contact 2 LinkedIn",
@@ -63,15 +70,21 @@ class SheetsWriter:
         return ws
 
     def write_jobs(self, jobs: list[dict], contacts_by_job: dict, drafts_by_job: dict) -> int:
-        """Write all jobs to the Jobs sheet, sorted by Match % descending."""
+        """Write all jobs to the Jobs sheet in precision-review order."""
         ws = self._get_or_create_worksheet("Jobs", JOBS_HEADERS)
 
         # Clear existing data (keep header row)
         if ws.row_count > 1:
             ws.delete_rows(2, ws.row_count)
 
-        # Sort by match score descending (unscored at bottom)
-        sorted_jobs = sorted(jobs, key=lambda j: j.get("match_score") or 0, reverse=True)
+        # Sort by fit bucket first, then match score descending.
+        sorted_jobs = sorted(
+            jobs,
+            key=lambda j: (
+                FIT_BUCKET_ORDER.get(j.get("fit_bucket") or "", 99),
+                -(j.get("match_score") or 0),
+            ),
+        )
 
         rows = []
         for job in sorted_jobs:
@@ -88,6 +101,7 @@ class SheetsWriter:
             # Format skills
             matched = _safe_json_loads(job.get("matched_skills", "[]"), [])
             missing = _safe_json_loads(job.get("missing_skills", "[]"), [])
+            penalty_reasons = _safe_json_loads(job.get("penalty_reasons", "[]"), [])
 
             row = [
                 # Core job info
@@ -96,13 +110,19 @@ class SheetsWriter:
                 job.get("location", ""),
                 job.get("remote", ""),
                 # Scores
+                job.get("fit_bucket") or "",
                 job.get("match_score") or "",
-                job.get("skill_score") or "",
+                job.get("role_family") or job.get("role_family_hint") or "",
+                job.get("required_skill_score") or "",
+                job.get("preferred_skill_score") or "",
+                job.get("domain_score") or "",
+                job.get("role_fit_score") or "",
                 job.get("experience_score") or "",
                 job.get("location_score") or "",
                 # Skills — NO truncation
                 ", ".join(matched) if isinstance(matched, list) else str(matched),
                 ", ".join(missing) if isinstance(missing, list) else str(missing),
+                "\n".join(penalty_reasons) if isinstance(penalty_reasons, list) else str(penalty_reasons),
                 # Match summary — generous limit
                 _truncate(job.get("match_summary", ""), 1000),
                 # Links
@@ -156,7 +176,7 @@ class SheetsWriter:
         """Append a run log entry."""
         ws = self._get_or_create_worksheet("Run Log", RUN_LOG_HEADERS)
         row = [
-            run.get("id", ""),
+            run.get("run_id", run.get("id", "")),
             run.get("started_at", ""),
             run.get("completed_at", ""),
             run.get("jobs_found", 0),
@@ -165,11 +185,11 @@ class SheetsWriter:
             run.get("contacts_found", 0),
             run.get("drafts_created", 0),
             run.get("errors", 0),
-            run.get("duration", ""),
+            run.get("duration_s", run.get("duration", "")),
             run.get("llm_cost", 0.0),
         ]
         ws.append_row(row)
-        logger.info("run_log_written", run_id=run.get("id"))
+        logger.info("run_log_written", run_id=run.get("run_id", run.get("id")))
 
 
 def _truncate(text: str, max_len: int) -> str:

@@ -22,6 +22,7 @@ from src.agents.base import AgentResult, BaseAgent
 from src.core.browser import human_delay, new_page, safe_goto
 from src.core.db import Database
 from src.core.llm import LLMClient
+from src.core.roles import classify_role_family, is_placeholder_text
 
 logger = structlog.get_logger()
 
@@ -178,26 +179,37 @@ class ParsingAgent(BaseAgent):
             fallback = {
                 "full_description": jd_text[:5000],
                 "jd_summary": jd_text[:300],
+                "required_skills": [],
+                "preferred_skills": [],
+                "skills_required": [],
+                "role_family_hint": classify_role_family(job.get("title", ""), jd_text[:500]),
             }
             if apply_url:
                 fallback["apply_url"] = apply_url
             return fallback
 
+        required_skills = self._clean_skills(structured.get("skills_required", []))
+        preferred_skills = self._clean_skills(structured.get("skills_preferred", []))
+        combined_skills = self._merge_skill_lists(required_skills, preferred_skills)
+        derived_title = structured.get("title") or job.get("title", "")
+        role_family_hint = classify_role_family(derived_title, jd_text[:1000])
+
         # Build update fields
         updates = {
             "full_description": jd_text[:5000],
             "jd_summary": structured.get("summary", ""),
-            "skills_required": json.dumps(
-                structured.get("skills_required", []) + structured.get("skills_preferred", [])
-            ),
+            "required_skills": required_skills,
+            "preferred_skills": preferred_skills,
+            "skills_required": combined_skills,
+            "role_family_hint": role_family_hint,
         }
 
-        # Only override fields if they were missing from sourcing
-        if not job.get("title") and structured.get("title"):
+        # Backfill weak source metadata, but preserve good scraped values.
+        if self._should_backfill_field(job.get("title")) and structured.get("title"):
             updates["title"] = structured["title"]
-        if not job.get("company") and structured.get("company"):
+        if self._should_backfill_field(job.get("company")) and structured.get("company"):
             updates["company"] = structured["company"]
-        if not job.get("location") and structured.get("location"):
+        if self._should_backfill_field(job.get("location")) and structured.get("location"):
             updates["location"] = structured["location"]
         if not job.get("remote") and structured.get("remote"):
             updates["remote"] = structured["remote"]
@@ -207,6 +219,32 @@ class ParsingAgent(BaseAgent):
             updates["apply_url"] = apply_url
 
         return updates
+
+    @staticmethod
+    def _clean_skills(skills: list[str]) -> list[str]:
+        cleaned = []
+        seen = set()
+        for skill in skills or []:
+            normalized = re.sub(r"\s+", " ", (skill or "").strip())
+            if normalized and normalized.lower() not in seen:
+                seen.add(normalized.lower())
+                cleaned.append(normalized)
+        return cleaned
+
+    @staticmethod
+    def _merge_skill_lists(required: list[str], preferred: list[str]) -> list[str]:
+        merged = []
+        seen = set()
+        for skill in list(required) + list(preferred):
+            key = skill.lower()
+            if key not in seen:
+                seen.add(key)
+                merged.append(skill)
+        return merged
+
+    @staticmethod
+    def _should_backfill_field(existing_value: str) -> bool:
+        return is_placeholder_text(existing_value)
 
     async def _extract_jd_text(self, page: Page, url: str) -> str:
         """Extract job description text using site-specific or generic selectors."""

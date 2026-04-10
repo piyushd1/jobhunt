@@ -16,6 +16,12 @@ from src.agents.base import AgentResult, BaseAgent
 from src.core.browser import new_page
 from src.core.config import get_enabled_portals
 from src.core.db import Database
+from src.core.roles import (
+    DEFAULT_ALLOWED_ROLE_FAMILIES,
+    DEFAULT_EXCLUDED_TITLE_KEYWORDS,
+    classify_role_family,
+    is_allowed_role,
+)
 from src.portals import get_adapter
 from src.portals.base import RawJob
 
@@ -31,6 +37,13 @@ class SourcingAgent(BaseAgent):
         super().__init__(config)
         self.db = db
         self.browser_ctx = browser_ctx
+        search_config = config.get("search", {})
+        self.allowed_role_families = search_config.get(
+            "allowed_role_families", DEFAULT_ALLOWED_ROLE_FAMILIES
+        )
+        self.excluded_title_keywords = search_config.get(
+            "excluded_title_keywords", DEFAULT_EXCLUDED_TITLE_KEYWORDS
+        )
 
     async def run(self, input_data: Any = None) -> AgentResult:
         """Scrape all enabled portals and deduplicate into SQLite."""
@@ -93,6 +106,7 @@ class SourcingAgent(BaseAgent):
         filtered_jobs = []
         blocked_count = 0
         exp_filtered_count = 0
+        role_filtered_count = 0
         for job in all_jobs:
             company_lower = (job.company or "").lower()
             title_lower = (job.title or "").lower()
@@ -107,6 +121,14 @@ class SourcingAgent(BaseAgent):
                 if not _experience_in_range(job.experience_required, effective_min, effective_max):
                     exp_filtered_count += 1
                     continue
+            if not is_allowed_role(
+                job.title,
+                description=job.snippet,
+                allowed_families=self.allowed_role_families,
+                excluded_keywords=self.excluded_title_keywords,
+            ):
+                role_filtered_count += 1
+                continue
             filtered_jobs.append(job)
 
         if blocked_count:
@@ -114,6 +136,9 @@ class SourcingAgent(BaseAgent):
         if exp_filtered_count:
             logger.info("sourcing_experience_filtered", filtered=exp_filtered_count,
                          range=f"{effective_min}-{effective_max} years")
+        if role_filtered_count:
+            logger.info("sourcing_role_filtered", filtered=role_filtered_count,
+                        allowed=self.allowed_role_families)
 
         # Deduplicate and write to DB
         new_count = 0
@@ -138,7 +163,10 @@ class SourcingAgent(BaseAgent):
                     "company": raw_job.company,
                     "location": raw_job.location,
                     "remote": raw_job.remote,
+                    "snippet": raw_job.snippet,
+                    "posted_date": raw_job.posted_date,
                     "experience_required": raw_job.experience_required,
+                    "role_family_hint": classify_role_family(raw_job.title, raw_job.snippet),
                     "status": "new",
                     "parse_status": "pending",
                 }
@@ -155,7 +183,11 @@ class SourcingAgent(BaseAgent):
             data={"new_jobs": new_count, "merged": merged_count, "portal_stats": portal_stats},
             count=new_count,
             errors=errors,
-            metadata={"total_scraped": len(all_jobs), "exp_filtered": exp_filtered_count},
+            metadata={
+                "total_scraped": len(all_jobs),
+                "exp_filtered": exp_filtered_count,
+                "role_filtered": role_filtered_count,
+            },
         )
 
 

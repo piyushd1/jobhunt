@@ -204,21 +204,34 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
                     match_errors = []
                     for i, job in enumerate(unscored):
                         try:
-                            scores = matcher._compute_deterministic_score(job)
-                            llm_analysis = await matcher._llm_enhance(job, scores)
-                            db.update_job(job["id"],
-                                match_score=scores["total"],
-                                skill_score=scores["skill_score"],
-                                experience_score=scores["experience_score"],
-                                location_score=scores["location_score"],
-                                matched_skills=scores["matched_skills"],
-                                missing_skills=scores["missing_skills"],
-                                match_summary=llm_analysis.get("match_summary", ""),
-                            )
+                            role_family = matcher._resolve_role_family(job)
+                            if role_family not in matcher.allowed_role_families:
+                                matcher._mark_out_of_scope(job, role_family)
+                                detail = f"weak_fit — {job.get('title', '')[:35]}"
+                            else:
+                                scores = matcher._compute_deterministic_score(job, role_family=role_family)
+                                llm_analysis = await matcher._llm_enhance(job, scores)
+                                db.update_job(job["id"],
+                                    match_score=scores["total"],
+                                    skill_score=scores["skill_score"],
+                                    required_skill_score=scores["required_skill_score"],
+                                    preferred_skill_score=scores["preferred_skill_score"],
+                                    experience_score=scores["experience_score"],
+                                    location_score=scores["location_score"],
+                                    domain_score=scores["domain_score"],
+                                    role_fit_score=scores["role_fit_score"],
+                                    matched_skills=scores["matched_skills"],
+                                    missing_skills=scores["missing_skills"],
+                                    role_family=role_family,
+                                    fit_bucket=scores["fit_bucket"],
+                                    penalty_reasons=scores["penalty_reasons"],
+                                    match_summary=llm_analysis.get("match_summary", scores["fallback_summary"]),
+                                )
+                                detail = f"{scores['fit_bucket']} {scores['total']}% — {job.get('title', '')[:35]}"
                             scored += 1
                             progress.update_stage(
                                 done=i + 1,
-                                detail=f"{scores['total']}% — {job.get('title', '')[:35]}",
+                                detail=detail,
                             )
                         except Exception as e:
                             match_errors.append(str(e))

@@ -89,7 +89,23 @@ def cmd_reset():
     subcmd = sys.argv[2].lower() if len(sys.argv) > 2 else "scores"
 
     if subcmd == "scores":
-        db.conn.execute("UPDATE jobs SET match_score = NULL, skill_score = NULL, experience_score = NULL, location_score = NULL, matched_skills = NULL, missing_skills = NULL, match_summary = NULL")
+        db.conn.execute(
+            """UPDATE jobs SET
+               match_score = NULL,
+               skill_score = NULL,
+               required_skill_score = NULL,
+               preferred_skill_score = NULL,
+               experience_score = NULL,
+               location_score = NULL,
+               domain_score = NULL,
+               role_fit_score = NULL,
+               matched_skills = NULL,
+               missing_skills = NULL,
+               match_summary = NULL,
+               role_family = NULL,
+               fit_bucket = NULL,
+               penalty_reasons = NULL"""
+        )
         db.conn.execute("DELETE FROM contacts")
         db.conn.execute("DELETE FROM drafts")
         db.conn.commit()

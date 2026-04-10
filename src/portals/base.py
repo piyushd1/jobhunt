@@ -3,8 +3,9 @@
 import hashlib
 import re
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlparse
 
 from playwright.async_api import Page
 
@@ -28,9 +29,33 @@ class RawJob:
 
     @property
     def fingerprint(self) -> str:
-        """Dedup key: hash of normalized company + title + location."""
-        raw = f"{self.company.lower().strip()}|{self.title.lower().strip()}|{self.location.lower().strip()}"
+        """Dedup key that remains stable even when fallback cards are sparse."""
+        company = self.company.lower().strip()
+        title = self.title.lower().strip()
+        location = self.location.lower().strip()
+
+        if company and title:
+            raw = f"{company}|{title}|{location}"
+        else:
+            job_key = self._extract_job_key(self.url)
+            raw = f"{self.source.lower().strip()}|{job_key}"
         return hashlib.md5(raw.encode()).hexdigest()
+
+    @staticmethod
+    def _extract_job_key(url: str) -> str:
+        """Extract a stable job identifier from the URL when metadata is sparse."""
+        parsed = urlparse(url or "")
+        normalized_url = f"{parsed.netloc.lower()}{parsed.path.rstrip('/')}".strip("/")
+
+        numeric_ids = re.findall(r"\d{5,}", normalized_url)
+        if numeric_ids:
+            return numeric_ids[-1]
+
+        path_parts = [part for part in parsed.path.split("/") if part]
+        if path_parts:
+            return path_parts[-1].lower()
+
+        return normalized_url or (url or "").strip().lower()
 
 
 class PortalAdapter(ABC):
