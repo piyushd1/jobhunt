@@ -304,6 +304,23 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_contacts_without_drafts_count(self, parse_status: Optional[str] = None) -> int:
+        """Count contacts that don't have drafts yet, optionally filtered by job parse_status."""
+        query = """
+            SELECT COUNT(c.id)
+            FROM contacts c
+            LEFT JOIN drafts d ON c.id = d.contact_id
+            JOIN jobs j ON c.job_id = j.id
+            WHERE d.id IS NULL
+        """
+        params = []
+        if parse_status:
+            query += " AND j.parse_status = ?"
+            params.append(parse_status)
+
+        row = self.conn.execute(query, params).fetchone()
+        return row[0] if row else 0
+
     # --- Runs ---
 
     def insert_run(self, run: dict) -> None:

@@ -273,13 +273,7 @@ async def run_pipeline(config: Optional[dict] = None) -> dict:
         # ── Step 6: Messaging (draft outreach for contacts) ──
         if candidate_profile and vectorstore:
             # Check if there are contacts without drafts
-            all_contacts_count = 0
-            for job in db.get_jobs(parse_status="parsed"):
-                contacts = db.get_contacts_for_job(job["id"])
-                for c in contacts:
-                    drafts = db.get_drafts_for_job(job["id"])
-                    if c["id"] not in {d.get("contact_id") for d in drafts}:
-                        all_contacts_count += 1
+            all_contacts_count = db.get_contacts_without_drafts_count(parse_status="parsed")
 
             if all_contacts_count > 0:
                 progress.start_stage("Drafting Messages", total=all_contacts_count)
