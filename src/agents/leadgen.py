@@ -362,12 +362,3 @@ class LeadGenAgent(BaseAgent):
             return "Leadership — decision maker", "medium"
         else:
             return f"Works at company", "low"
-
-    @staticmethod
-    def _is_duplicate(contact: dict, existing: list[dict]) -> bool:
-        url = contact.get("linkedin_url", "")
-        name = contact.get("name", "").lower()
-        for e in existing:
-            if e.get("linkedin_url") == url or e.get("name", "").lower() == name:
-                return True
-        return False
