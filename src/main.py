@@ -4,6 +4,8 @@ Usage:
     python -m src hunt                          # Run the full pipeline (incremental)
     python -m src hunt fresh                    # Nuke DB + fresh run from scratch
     python -m src reset scores                  # Reset match scores only (re-score)
+    python -m src eval_matches                  # Run LLM to evaluate match scoring logic
+
     python -m src reset all                     # Nuke entire DB (full fresh start)
     python -m src setup                         # Open browser for portal logins
     python -m src status                        # Show job counts in DB
@@ -500,6 +502,24 @@ def cmd_blacklist():
     db.close()
 
 
+
+def cmd_eval_matches():
+    from src.eval.eval_matches import run_evaluator
+    limit = 10
+    if len(sys.argv) > 3 and sys.argv[2] == "--limit":
+        try:
+            limit = int(sys.argv[3])
+        except ValueError:
+            pass
+
+    console.print(f"[bold cyan]Running Match Evaluator (limit: {limit})...[/]")
+    report_path = asyncio.run(run_evaluator(limit=limit))
+    if report_path:
+        console.print(f"[bold green]Report generated: {report_path}[/]")
+    else:
+        console.print(f"[bold red]Failed to generate report.[/]")
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -515,6 +535,7 @@ def main():
         "status": cmd_status,
         "models": cmd_models,
         "metrics": cmd_metrics,
+        "eval_matches": cmd_eval_matches,
     }
 
     if command in commands:
