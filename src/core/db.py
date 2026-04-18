@@ -258,8 +258,12 @@ class Database:
             if key in fields and isinstance(fields[key], (list, dict)):
                 fields[key] = json.dumps(fields[key])
         fields["updated_at"] = datetime.utcnow().isoformat()
-        set_clause = ", ".join(f"{k} = ?" for k in fields)
-        values = list(fields.values()) + [job_id]
+
+        # Build set clause using whitelisted keys only
+        allowed_keys = [k for k in fields if k in self.VALID_JOB_FIELDS]
+        set_clause = ", ".join(f"{k} = ?" for k in allowed_keys)
+        values = [fields[k] for k in allowed_keys] + [job_id]
+
         self.conn.execute(f"UPDATE jobs SET {set_clause} WHERE id = ?", values)
         self.conn.commit()
 
@@ -364,8 +368,11 @@ class Database:
         if invalid_fields:
             raise ValueError(f"Invalid fields for runs table: {invalid_fields}")
 
-        set_clause = ", ".join(f"{k} = ?" for k in fields)
-        values = list(fields.values()) + [run_id]
+        # Build set clause using whitelisted keys only
+        allowed_keys = [k for k in fields if k in self.VALID_RUN_FIELDS]
+        set_clause = ", ".join(f"{k} = ?" for k in allowed_keys)
+        values = [fields[k] for k in allowed_keys] + [run_id]
+
         self.conn.execute(f"UPDATE runs SET {set_clause} WHERE id = ?", values)
         self.conn.commit()
 
