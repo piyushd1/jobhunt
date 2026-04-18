@@ -226,12 +226,66 @@ class SkillCanonicalizer:
         """Canonicalize a list of skills. Returns list of {raw, canonical, method, category}."""
         results = []
         seen_canonicals = set()
-        for raw in raw_skills:
-            canonical, method = self.canonicalize(raw)
-            if canonical not in seen_canonicals:  # Deduplicate
+
+        # 1. Map as many as possible via exact taxonomy match
+        temp_results: list[Optional[tuple[str, str]]] = [None] * len(raw_skills)
+        pending_indices = []
+
+        for i, raw in enumerate(raw_skills):
+            canonical = canonicalize_skill(raw)
+            if canonical:
+                temp_results[i] = (canonical, "exact")
+            else:
+                pending_indices.append(i)
+
+        # 2. Batch embedding fallback for the rest
+        if pending_indices and self._embedding_model is not None:
+            self._ensure_embeddings()
+            to_embed_raw = [raw_skills[i] for i in pending_indices]
+
+            # Deduplicate unique strings to embed to save on API costs
+            unique_to_embed = []
+            raw_to_unique_idx = {}
+            for raw in to_embed_raw:
+                if raw not in raw_to_unique_idx:
+                    raw_to_unique_idx[raw] = len(unique_to_embed)
+                    unique_to_embed.append(raw)
+
+            unique_embeddings = self._embedding_model.embed(unique_to_embed)
+
+            # Map back to temp_results
+            for i in pending_indices:
+                raw = raw_skills[i]
+                query_embedding = unique_embeddings[raw_to_unique_idx[raw]]
+
+                best_score = 0.0
+                best_match = raw
+                for j, canon_emb in enumerate(self._canonical_embeddings):
+                    score = self._cosine_sim(query_embedding, canon_emb)
+                    if score > best_score:
+                        best_score = score
+                        best_match = self._canonical_names[j]
+
+                if best_score >= self._threshold:
+                    temp_results[i] = (best_match, "embedding")
+                    logger.debug("skill_embedding_match",
+                                 raw=raw, matched=best_match, score=round(best_score, 3))
+                else:
+                    temp_results[i] = (raw, "unmatched")
+        else:
+            # No embedding model or nothing left to embed
+            for i in pending_indices:
+                temp_results[i] = (raw_skills[i], "unmatched")
+
+        # 3. Build final deduplicated results
+        for i, res in enumerate(temp_results):
+            if res is None:
+                continue
+            canonical, method = res
+            if canonical not in seen_canonicals:
                 seen_canonicals.add(canonical)
                 results.append({
-                    "raw": raw,
+                    "raw": raw_skills[i],
                     "canonical": canonical,
                     "method": method,
                     "category": get_category_for_skill(canonical) or "other",
