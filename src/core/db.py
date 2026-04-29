@@ -138,6 +138,24 @@ JOB_COLUMN_MIGRATIONS = {
 class Database:
     """SQLite database wrapper for job hunt data."""
 
+    VALID_JOB_FIELDS = {
+        "id", "fingerprint", "source", "source_urls", "apply_url", "url",
+        "title", "company", "location", "remote", "snippet", "posted_date",
+        "experience_required", "skills_required", "required_skills", "preferred_skills",
+        "full_description", "jd_summary", "match_score", "skill_score",
+        "required_skill_score", "preferred_skill_score", "experience_score",
+        "location_score", "domain_score", "role_fit_score", "matched_skills",
+        "missing_skills", "match_summary", "role_family_hint", "role_family",
+        "fit_bucket", "penalty_reasons", "status", "parse_status", "notes",
+        "created_at", "updated_at"
+    }
+
+    VALID_RUN_FIELDS = {
+        "id", "started_at", "completed_at", "jobs_found", "jobs_parsed",
+        "jobs_shortlisted", "contacts_found", "drafts_created", "errors",
+        "config_snapshot"
+    }
+
     def __init__(self, db_path: str = "./data/job_hunt.db"):
         self.db_path = db_path
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -223,6 +241,12 @@ class Database:
         """Update specific fields on a job."""
         if not fields:
             return
+
+        # Validate fields against whitelist to prevent SQL injection
+        invalid_fields = set(fields.keys()) - self.VALID_JOB_FIELDS
+        if invalid_fields:
+            raise ValueError(f"Invalid fields for jobs table: {invalid_fields}")
+
         # Serialize JSON fields
         for key in (
             "skills_required",
@@ -306,6 +330,23 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_contacts_without_drafts_count(self, parse_status: Optional[str] = None) -> int:
+        """Count contacts that don't have drafts yet, optionally filtered by job parse_status."""
+        query = """
+            SELECT COUNT(c.id)
+            FROM contacts c
+            LEFT JOIN drafts d ON c.id = d.contact_id
+            JOIN jobs j ON c.job_id = j.id
+            WHERE d.id IS NULL
+        """
+        params = []
+        if parse_status:
+            query += " AND j.parse_status = ?"
+            params.append(parse_status)
+
+        row = self.conn.execute(query, params).fetchone()
+        return row[0] if row else 0
+
     # --- Runs ---
 
     def insert_run(self, run: dict) -> None:
@@ -319,6 +360,12 @@ class Database:
     def update_run(self, run_id: str, **fields) -> None:
         if not fields:
             return
+
+        # Validate fields against whitelist to prevent SQL injection
+        invalid_fields = set(fields.keys()) - self.VALID_RUN_FIELDS
+        if invalid_fields:
+            raise ValueError(f"Invalid fields for runs table: {invalid_fields}")
+
         set_clause = ", ".join(f"{k} = ?" for k in fields)
         values = list(fields.values()) + [run_id]
         self.conn.execute(f"UPDATE runs SET {set_clause} WHERE id = ?", values)
