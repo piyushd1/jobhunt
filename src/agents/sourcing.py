@@ -103,10 +103,23 @@ class SourcingAgent(BaseAgent):
         effective_min = max(0, exp_min - exp_buffer)
         effective_max = exp_max + exp_buffer
 
+        # Big-brand company gate — Project/Program Manager titles only allowed
+        # at companies in the configured big-brand list.
+        big_brand_list = [
+            c.lower() for c in self.config.get("big_brand_companies", []) if c
+        ]
+        pgm_title_keywords = [
+            "project manager", "project lead",
+            "program manager", "programme manager",
+            "technical program manager", "technical programme manager",
+            "tpm ", " tpm", "pgm ", " pgm",
+        ]
+
         filtered_jobs = []
         blocked_count = 0
         exp_filtered_count = 0
         role_filtered_count = 0
+        pgm_filtered_count = 0
         for job in all_jobs:
             company_lower = (job.company or "").lower()
             title_lower = (job.title or "").lower()
@@ -129,6 +142,17 @@ class SourcingAgent(BaseAgent):
             ):
                 role_filtered_count += 1
                 continue
+            # Big-brand gate: if title is Project/Program Manager (or TPM/PgM),
+            # keep only when company matches the big-brand list.
+            title_padded = f" {title_lower} "
+            is_pgm_title = any(kw in title_padded for kw in pgm_title_keywords)
+            if is_pgm_title:
+                if not big_brand_list:
+                    pgm_filtered_count += 1
+                    continue
+                if not any(brand in company_lower for brand in big_brand_list):
+                    pgm_filtered_count += 1
+                    continue
             filtered_jobs.append(job)
 
         if blocked_count:
@@ -139,6 +163,10 @@ class SourcingAgent(BaseAgent):
         if role_filtered_count:
             logger.info("sourcing_role_filtered", filtered=role_filtered_count,
                         allowed=self.allowed_role_families)
+        if pgm_filtered_count:
+            logger.info("sourcing_pgm_filtered_non_big_brand",
+                        filtered=pgm_filtered_count,
+                        big_brand_count=len(big_brand_list))
 
         # Deduplicate and write to DB
         new_count = 0

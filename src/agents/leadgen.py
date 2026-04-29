@@ -25,12 +25,71 @@ from src.core.db import Database
 
 logger = structlog.get_logger()
 
-# Search queries for finding contacts — boolean operators in UPPERCASE
+# Search queries for finding contacts — boolean operators in UPPERCASE.
+# Scope: Recruiters + HR + Talent Acquisition only (no peer PMs / hiring managers).
 SEARCH_TEMPLATES = [
     "Recruiter OR Talent Acquisition",
-    "HR OR Human Resources",
-    "Product Manager OR Engineering Manager",
+    "HR OR Human Resources OR People Operations",
 ]
+
+# Hiring-role keywords used to filter contacts post-extraction.
+# Any contact whose title doesn't include one of these is dropped.
+HIRING_ROLE_KEYWORDS = [
+    # Recruiter family
+    "recruiter", "recruiters", "recruiting", "recruitment",
+    "tech recruiter", "technical recruiter",
+    "lead recruiter", "senior recruiter",
+    "campus recruiter", "campus recruiting",
+    "executive recruiter", "executive search",
+    "staffing", "staffing partner",
+    # Talent Acquisition family
+    "talent acquisition", "talent acquisitions",
+    "talent acquisition partner", "talent acquisition specialist",
+    "talent acquisition manager", "talent acquisition lead",
+    "talent partner", "talent advisor", "talent specialist",
+    "talent scout", "talent",
+    " ta ", " ta,", " ta-",          # acronym (padded for safety)
+    "ta partner", "ta manager", "ta specialist", "ta lead",
+    "ta team", "global ta",
+    # Sourcer family
+    "sourcer", "sourcing", "sourcing specialist", "sourcing manager",
+    "candidate sourcer",
+    # HR / People family
+    "hr ", "hr,", " hr-", " hr.",     # acronym (padded)
+    "hrbp", "hr bp", "hr business partner",
+    "hr generalist", "hr manager", "hr lead", "hr specialist",
+    "hr executive", "hr partner", "hr advisor",
+    "human resources", "human resource",
+    "people operations", "people ops",
+    "people partner", "people experience",
+    "people team", "people manager",
+    "people analytics", "people success",
+    "chief people officer", "chief human resources officer",
+    "vp people", "head of people", "head of hr", "head of talent",
+    "director of people", "director of hr", "director of talent",
+    # Hiring
+    "hiring", "hiring partner", "hiring manager",
+    # Employer brand / employee experience
+    "employer branding", "employer brand", "employee experience",
+    "talent branding", "talent brand",
+    # Compensation / L&D (extended HR)
+    "compensation", "rewards", "comp & ben",
+    "learning and development", "l&d ", " l&d,",
+]
+
+
+def _is_hiring_role(title: str) -> bool:
+    """True if the contact's title looks like a recruiter/HR/TA role.
+
+    Match is substring-based against a padded lowercased title (so acronyms
+    like 'TA' and 'HR' need spacing/punctuation around them to match).
+    """
+    if not title:
+        return False
+    # Pad with spaces and add trailing punctuation so the acronym entries
+    # ('hr ', ' ta ', ' hr-', etc.) can match positions at the start/end.
+    lo = f" {title.lower().strip()} "
+    return any(kw in lo for kw in HIRING_ROLE_KEYWORDS)
 
 
 class LeadGenAgent(BaseAgent):
@@ -58,6 +117,7 @@ class LeadGenAgent(BaseAgent):
             "company_page": 0, "people_search": 0,
             "text_scan": 0, "failed": 0,
             "skipped_former_employee": 0,
+            "skipped_non_hiring_role": 0,
         }
 
     async def run(self, input_data: Any = None) -> AgentResult:
@@ -299,6 +359,11 @@ class LeadGenAgent(BaseAgent):
                         self._strategy_stats["skipped_former_employee"] += 1
                         continue
 
+                    # FILTER: Only keep hiring-related roles (Recruiter / TA / HR).
+                    if not _is_hiring_role(title):
+                        self._strategy_stats["skipped_non_hiring_role"] += 1
+                        continue
+
                     # Determine relevance
                     relevance, confidence = self._assess_relevance(title, name)
 
@@ -346,22 +411,20 @@ class LeadGenAgent(BaseAgent):
     def _assess_relevance(title: str, name: str) -> tuple:
         """Assess how relevant a contact is based on their title.
 
+        Scope: Recruiters / Talent Acquisition / HR only — non-hiring titles
+        are filtered out before this function is called. This is a safety net.
+
         Returns: (relevance_reason, confidence)
         """
         title_lower = title.lower()
 
-        if any(w in title_lower for w in ["recruiter", "recruiting", "talent acquisition"]):
-            return "Recruiter — can refer you directly", "high"
-        elif any(w in title_lower for w in ["hr ", "human resources", "people ops", "people operations"]):
+        if any(w in title_lower for w in ["recruiter", "recruiting", "talent acquisition", "sourcer", "sourcing", "talent partner"]):
+            return "Recruiter — manages hiring for this role", "high"
+        if any(w in title_lower for w in ["hr ", "human resources", "people ops", "people operations", "people partner", "people experience"]):
             return "HR — handles hiring process", "high"
-        elif any(w in title_lower for w in ["product manager", "product lead", "head of product", "director of product"]):
-            return "Product team — potential hiring manager or peer", "high"
-        elif any(w in title_lower for w in ["engineering manager", "tech lead", "director of engineering"]):
-            return "Engineering leader — often part of PM hiring loops", "medium"
-        elif any(w in title_lower for w in ["founder", "ceo", "cto", "coo", "vp"]):
-            return "Leadership — decision maker", "medium"
-        else:
-            return f"Works at company", "low"
+        # Safety net — should not normally be reached because non-hiring roles
+        # are filtered upstream in _extract_profile_links.
+        return "Works at company", "low"
 
     @staticmethod
     def _is_duplicate(contact: dict, existing: list[dict]) -> bool:

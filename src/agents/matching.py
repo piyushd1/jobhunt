@@ -159,6 +159,12 @@ class MatchingAgent(BaseAgent):
                 scores = self._compute_deterministic_score(job, role_family=role_family)
                 llm_analysis = await self._llm_enhance(job, scores)
 
+                # Two-pass keyword extraction: full JD keywords -> curated "Add to Resume" list
+                jd_keywords = await self._extract_jd_keywords(job)
+                keywords_to_add = await self._suggest_keywords_to_add(
+                    job, scores, jd_keywords
+                )
+
                 self.db.update_job(
                     job["id"],
                     match_score=scores["total"],
@@ -171,6 +177,7 @@ class MatchingAgent(BaseAgent):
                     role_fit_score=scores["role_fit_score"],
                     matched_skills=scores["matched_skills"],
                     missing_skills=scores["missing_skills"],
+                    keywords_to_add=keywords_to_add,
                     role_family=role_family,
                     fit_bucket=scores["fit_bucket"],
                     penalty_reasons=scores["penalty_reasons"],
@@ -333,8 +340,15 @@ class MatchingAgent(BaseAgent):
         jd_text = job.get("full_description") or job.get("jd_summary") or ""
         relevant_chunks = self.vectorstore.query(jd_text, top_k=3)
         context = "\n".join(f"- {c['text']}" for c in relevant_chunks)
-        company_context = ", ".join(self.candidate_companies[:3]) or "recent marketplace companies"
+        company_context = ", ".join(self.candidate_companies[:3]) or "previous companies"
         penalty_text = "; ".join(scores["penalty_reasons"]) or "None"
+        # Build domain context dynamically from profile
+        domain_summary = ", ".join(self.candidate_domains[:6]) or "current domains"
+        level_note = (
+            "early-career" if self.candidate_years <= 3
+            else "mid-career" if self.candidate_years <= 7
+            else "senior"
+        )
 
         prompt = f"""CANDIDATE BACKGROUND:
 {self.candidate_summary}
@@ -360,7 +374,7 @@ Matched skills: {', '.join(scores['matched_skills'][:10])}
 Missing skills: {', '.join(scores['missing_skills'][:10])}
 Penalty reasons: {penalty_text}
 
-IMPORTANT: Stay grounded in the candidate's actual marketplace, consumer, and AI/product strengths. Call out mismatches clearly when the JD leans toward domains the candidate does not deeply own.
+IMPORTANT: Stay grounded in the candidate's actual strengths ({domain_summary}). This candidate is {level_note} ({self.candidate_years} yrs). Call out mismatches clearly when the JD demands domain depth, leadership scope, or seniority the candidate does not own.
 
 Analyze this match."""
 
@@ -377,6 +391,124 @@ Analyze this match."""
                 "match_summary": scores["fallback_summary"],
                 "role_fit": scores["fit_bucket"],
             }
+
+    async def _extract_jd_keywords(self, job: dict) -> list[str]:
+        """Pass 1: extract every concrete keyword/skill/tool from the JD.
+
+        Uses LLM to lift hard skills, tools, frameworks, methodologies, and
+        domain terms out of the JD. Then canonicalizes via SkillCanonicalizer.
+        Returns a deduped flat list (canonical names where available, raw
+        otherwise).
+        """
+        jd_text = job.get("full_description") or job.get("jd_summary") or ""
+        if not jd_text or len(jd_text.strip()) < 50:
+            return []
+
+        system = (
+            "You extract concrete, hireable keywords from job descriptions. "
+            "Return ONLY valid JSON with these arrays: "
+            "{\"skills\": [...], \"tools\": [...], \"methodologies\": [...], "
+            "\"domain_terms\": [...]}. "
+            "Pull hard skills (e.g., 'A/B testing', 'SQL'), tools (e.g., 'Mixpanel', "
+            "'Jira'), methodologies (e.g., 'Agile', 'OKR'), and domain terms "
+            "(e.g., 'marketplace', 'fintech'). Skip soft skills like "
+            "'team player' and generic phrases."
+        )
+        prompt = (
+            f"Job: {job.get('title', '')} at {job.get('company', '')}\n\n"
+            f"Job description:\n{jd_text[:3000]}"
+        )
+
+        try:
+            response = await self.llm.complete_json(
+                prompt=prompt, system=system, agent=self.name
+            )
+        except Exception as exc:
+            logger.warning("jd_keyword_extraction_failed",
+                           job_id=job.get("id"), error=str(exc))
+            return []
+
+        raw_terms: list[str] = []
+        for bucket in ("skills", "tools", "methodologies", "domain_terms"):
+            items = response.get(bucket) or []
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, str) and item.strip():
+                        raw_terms.append(item.strip())
+
+        # Canonicalize each term and dedupe (case-insensitive)
+        seen: set[str] = set()
+        canonical: list[str] = []
+        for term in raw_terms:
+            try:
+                canon, _method = self.canonicalizer.canonicalize(term)
+            except Exception:
+                canon = term
+            canon = canon or term
+            key = canon.lower()
+            if key not in seen and len(canon) > 1:
+                seen.add(key)
+                canonical.append(canon)
+        return canonical
+
+    async def _suggest_keywords_to_add(self, job: dict, scores: dict,
+                                        jd_keywords: list[str]) -> str:
+        """Pass 2: curate the top 3-5 keywords to add to the resume.
+
+        Compares JD keywords against candidate skills, then asks the LLM to
+        pick the most impactful, honestly-addable ones. Returns a JSON-encoded
+        list of strings (or empty list on failure — non-blocking).
+        """
+        if not jd_keywords:
+            return json.dumps([])
+
+        candidate_lower = {s.lower() for s in self.candidate_skills}
+        gap = [kw for kw in jd_keywords if kw.lower() not in candidate_lower]
+        if not gap:
+            return json.dumps([])
+
+        candidate_skill_preview = ", ".join(list(self.candidate_skills)[:25])
+        prompt = f"""CANDIDATE skills already on resume:
+{candidate_skill_preview}
+
+CANDIDATE summary: {self.candidate_summary}
+Years of experience: {self.candidate_years}
+
+JOB: {job.get('title', '')} at {job.get('company', '')}
+Match score so far: {scores['total']}%
+Missing required skills (already flagged): {', '.join(scores.get('missing_skills', [])[:8])}
+
+KEYWORDS in this JD that are NOT on her resume:
+{', '.join(gap[:30])}
+
+Pick the TOP 3-5 keywords she should add to her resume to better match THIS role. Pick keywords that are:
+- Real, specific, hireable (skills, tools, methodologies, domains — not buzzwords)
+- Honestly addable given her current work (don't suggest skills she'd have to learn from scratch)
+- Most likely to move her past the recruiter screen for THIS role
+
+Return ONLY valid JSON: {{"keywords": ["kw1", "kw2", "kw3"]}}
+"""
+        system = (
+            "You help candidates tailor resumes for specific jobs. Recommend "
+            "ONLY keywords the candidate could genuinely claim given their "
+            "actual experience. Reject buzzwords and skills they'd have to "
+            "learn from scratch. Return strict JSON."
+        )
+
+        try:
+            response = await self.llm.complete_json(
+                prompt=prompt, system=system, agent=self.name
+            )
+            keywords = response.get("keywords") or []
+            if not isinstance(keywords, list):
+                return json.dumps([])
+            cleaned = [k.strip() for k in keywords
+                       if isinstance(k, str) and k.strip()][:5]
+            return json.dumps(cleaned)
+        except Exception as exc:
+            logger.warning("keywords_to_add_failed",
+                           job_id=job.get("id"), error=str(exc))
+            return json.dumps([])
 
     def _compute_domain_fit(self, job: dict) -> dict:
         """Score how well the role maps to the candidate's actual work patterns."""

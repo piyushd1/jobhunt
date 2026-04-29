@@ -26,7 +26,7 @@ JOBS_HEADERS = [
     "Fit Bucket", "Match %", "Role Family",
     "Req Skill Score", "Pref Skill Score", "Domain Score", "Role Fit Score",
     "Exp Score", "Location Score",
-    "Matched Skills", "Missing Skills", "Penalty Reasons", "Match Summary",
+    "Matched Skills", "Missing Skills", "Add to Resume", "Penalty Reasons", "Match Summary",
     "Portal Links", "Apply Link", "Experience",
     "Contact 1", "Contact 1 Title", "Contact 1 LinkedIn",
     "Contact 2", "Contact 2 Title", "Contact 2 LinkedIn",
@@ -102,6 +102,7 @@ class SheetsWriter:
             matched = _safe_json_loads(job.get("matched_skills", "[]"), [])
             missing = _safe_json_loads(job.get("missing_skills", "[]"), [])
             penalty_reasons = _safe_json_loads(job.get("penalty_reasons", "[]"), [])
+            keywords_to_add = _safe_json_loads(job.get("keywords_to_add", "[]"), [])
 
             row = [
                 # Core job info
@@ -122,6 +123,7 @@ class SheetsWriter:
                 # Skills — NO truncation
                 ", ".join(matched) if isinstance(matched, list) else str(matched),
                 ", ".join(missing) if isinstance(missing, list) else str(missing),
+                ", ".join(keywords_to_add) if isinstance(keywords_to_add, list) else str(keywords_to_add),
                 "\n".join(penalty_reasons) if isinstance(penalty_reasons, list) else str(penalty_reasons),
                 # Match summary — generous limit
                 _truncate(job.get("match_summary", ""), 1000),

@@ -35,6 +35,7 @@ class NaukriAdapter(PortalAdapter):
                 if len(jobs) >= self.max_results:
                     break
 
+                seen_in_keyword: set[str] = set()
                 for page_num in range(self.pages_per_search):
                     if len(jobs) >= self.max_results:
                         break
@@ -52,9 +53,17 @@ class NaukriAdapter(PortalAdapter):
                         if not page_jobs:
                             break
 
-                        jobs.extend(page_jobs)
+                        new_jobs = [j for j in page_jobs if j.url not in seen_in_keyword]
+                        if page_num > 0 and not new_jobs:
+                            logger.info("naukri_no_new_jobs_stop", keyword=keyword,
+                                        location=location, page=page_num + 1)
+                            break
+
+                        for j in new_jobs:
+                            seen_in_keyword.add(j.url)
+                        jobs.extend(new_jobs)
                         logger.info("naukri_page_done", keyword=keyword, location=location,
-                                    page=page_num + 1, found=len(page_jobs))
+                                    page=page_num + 1, found=len(new_jobs))
 
                     except Exception as e:
                         logger.warning("naukri_search_failed", keyword=keyword, location=location,

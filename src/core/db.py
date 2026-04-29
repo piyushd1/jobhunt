@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     role_fit_score REAL,
     matched_skills TEXT,           -- JSON array
     missing_skills TEXT,           -- JSON array
+    keywords_to_add TEXT,          -- JSON array — LLM-curated keywords to add to resume for this job
     match_summary TEXT,
     role_family_hint TEXT,
     role_family TEXT,
@@ -130,6 +131,7 @@ JOB_COLUMN_MIGRATIONS = {
     "role_family": "ALTER TABLE jobs ADD COLUMN role_family TEXT",
     "fit_bucket": "ALTER TABLE jobs ADD COLUMN fit_bucket TEXT",
     "penalty_reasons": "ALTER TABLE jobs ADD COLUMN penalty_reasons TEXT",
+    "keywords_to_add": "ALTER TABLE jobs ADD COLUMN keywords_to_add TEXT",
 }
 
 

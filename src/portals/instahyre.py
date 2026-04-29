@@ -42,7 +42,9 @@ class InstahyreAdapter(PortalAdapter):
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                     await human_delay(2, 4)
 
-                    # Instahyre uses infinite scroll — scroll multiple times to load more
+                    # Instahyre uses infinite scroll — scroll N rounds, but bail
+                    # early if scrolling stops adding new cards (no more results).
+                    prev_card_count = 0
                     for page_num in range(self.pages_per_search):
                         if len(jobs) >= self.max_results:
                             break
@@ -53,6 +55,18 @@ class InstahyreAdapter(PortalAdapter):
 
                         await random_scroll(page, scrolls=3)
                         await human_delay(2, 3)
+
+                        # Quick card count check (lightweight — counts <a href*='/in/'> equivalent)
+                        try:
+                            current_count = len(await page.query_selector_all("a[href*='/jobs/'], a[href*='/opportunities/']"))
+                        except Exception:
+                            current_count = prev_card_count
+                        if page_num > 0 and current_count <= prev_card_count:
+                            logger.info("instahyre_no_new_scroll_stop",
+                                        keyword=keyword, location=location,
+                                        page=page_num + 1)
+                            break
+                        prev_card_count = current_count
 
                     page_jobs = await self._extract_jobs(page)
                     jobs.extend(page_jobs)

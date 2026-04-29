@@ -36,6 +36,7 @@ class LinkedInAdapter(PortalAdapter):
                     break
 
                 # Paginate through multiple pages per keyword+location
+                seen_in_keyword: set[str] = set()
                 for page_num in range(self.pages_per_search):
                     if len(jobs) >= self.max_results:
                         break
@@ -53,9 +54,19 @@ class LinkedInAdapter(PortalAdapter):
                         if not page_jobs:
                             break  # No more results on this page
 
-                        jobs.extend(page_jobs)
+                        # Early-stop: if all results are duplicates of prior pages,
+                        # the portal likely redirected back to page 1.
+                        new_jobs = [j for j in page_jobs if j.url not in seen_in_keyword]
+                        if page_num > 0 and not new_jobs:
+                            logger.info("linkedin_no_new_jobs_stop", keyword=keyword,
+                                        location=location, page=page_num + 1)
+                            break
+
+                        for j in new_jobs:
+                            seen_in_keyword.add(j.url)
+                        jobs.extend(new_jobs)
                         logger.info("linkedin_page_done", keyword=keyword, location=location,
-                                    page=page_num + 1, found=len(page_jobs))
+                                    page=page_num + 1, found=len(new_jobs))
 
                     except Exception as e:
                         logger.warning("linkedin_search_failed", keyword=keyword,

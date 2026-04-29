@@ -37,7 +37,8 @@ class WellfoundAdapter(PortalAdapter):
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                     await human_delay(2, 4)
 
-                    # Wellfound uses infinite scroll — scroll multiple times to load more
+                    # Wellfound infinite scroll — bail early if no new cards load.
+                    prev_card_count = 0
                     for page_num in range(self.pages_per_search):
                         if len(jobs) >= self.max_results:
                             break
@@ -48,6 +49,17 @@ class WellfoundAdapter(PortalAdapter):
 
                         await random_scroll(page, scrolls=3)
                         await human_delay(2, 3)
+
+                        try:
+                            current_count = len(await page.query_selector_all("a[href*='/jobs/']"))
+                        except Exception:
+                            current_count = prev_card_count
+                        if page_num > 0 and current_count <= prev_card_count:
+                            logger.info("wellfound_no_new_scroll_stop",
+                                        keyword=keyword, location=location,
+                                        page=page_num + 1)
+                            break
+                        prev_card_count = current_count
 
                     page_jobs = await self._extract_jobs(page)
                     jobs.extend(page_jobs)

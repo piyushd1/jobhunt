@@ -1,4 +1,4 @@
-# Job Hunt Agent — Configuration
+# Job Hunt Agent — Configuration (Ayushi Singh, APM)
 # Copy .env.example to .env and fill in your API keys
 
 llm:
@@ -7,16 +7,16 @@ llm:
   # Thinking models (complex reasoning):
   #   openrouter/deepseek/deepseek-r1              ~$0.55/M tokens
   #   openrouter/qwen/qwen3-235b-a22b              ~$0.30/M tokens
-  #   openrouter/deepseek/deepseek-chat-v3-0324    ~$0.27/M tokens (DeepSeek V3.2)
+  #   openrouter/deepseek/deepseek-v3.2            ~$0.27/M tokens
   #
   # Mid-tier (good quality, affordable):
-  #   openrouter/qwen/qwen3.6-plus            Free but rate-limited
-  #   openrouter/anthropic/claude-3.5-haiku         ~$0.80/M in, $4/M out
+  #   openrouter/qwen/qwen3.6-plus
+  #   openrouter/anthropic/claude-3.5-haiku        ~$0.80/M in, $4/M out
   #
   # Speed models (fast + cheap, for bulk work):
   #   groq/llama-3.3-70b-versatile                 Free tier, blazing fast via Groq LPU
   #   groq/llama-3.1-8b-instant                    Free tier, fastest
-  #   openrouter/free                               Auto-routes to a working free model
+  #   openrouter/free                              Auto-routes to a working free model
 
   # ── Global defaults ──
   default_model: "openrouter/qwen/qwen3.6-plus"
@@ -27,96 +27,198 @@ llm:
   delay_between_calls_s: 2          # Pause between consecutive LLM calls
 
   # ── Per-agent model selection ──
-  # All OpenRouter — add Groq models when you have the API key.
   agents:
     resume_profiler:
-      model: "openrouter/deepseek/deepseek-v3.2"   # Strong reasoning, runs once
+      model: "openrouter/deepseek/deepseek-v3.2"
       fallback: "openrouter/xiaomi/mimo-v2-pro"
     parsing:
-      model: "openrouter/xiaomi/mimo-v2-pro"           # Structured extraction, 40+ calls
+      model: "openrouter/xiaomi/mimo-v2-pro"
       fallback: "minimax/minimax-m2.7"
     matching:
-      model: "openrouter/deepseek/deepseek-v3.2"   # Best reasoning for scoring
+      model: "openrouter/deepseek/deepseek-v3.2"
       fallback: "openrouter/xiaomi/mimo-v2-pro"
     leadgen:
       model: "openrouter/xiaomi/mimo-v2-pro"
       fallback: "minimax/minimax-m2.7"
     messaging:
-      model: "openrouter/xiaomi/mimo-v2-pro"           # Good writing quality
+      model: "openrouter/xiaomi/mimo-v2-pro"
       fallback: "minimax/minimax-m2.7"
 
   # Embedding model for resume RAG (ChromaDB)
   embedding:
-    provider: "local"              # "local" = free, no API needed
-    model: "all-MiniLM-L6-v2"     # 384-dim, runs on CPU
+    provider: "local"
+    model: "all-MiniLM-L6-v2"
 
 browser:
   profile_dir: "./data/browser_profile"
-  headless: false                 # Visible browser = lower detection risk
-  slow_mo: 800                   # ms between browser actions
-  timeout: 30000                 # ms page load timeout
+  headless: false
+  slow_mo: 800
+  timeout: 30000
+
+# ── BIG-BRAND COMPANIES ──
+# Project / Program Manager titles are ONLY allowed if the company matches
+# one of these. For all other companies, only Product Manager / APM / Product
+# Owner roles are kept. Match is substring-based on the lowercased company name.
+big_brand_companies:
+  # Big tech (FAANG+)
+  - "google"
+  - "amazon"
+  - "microsoft"
+  - "meta"
+  - "apple"
+  - "netflix"
+  - "linkedin"
+  - "adobe"
+  - "salesforce"
+  - "uber"
+  - "airbnb"
+  - "nvidia"
+  # India unicorns / large tech
+  - "flipkart"
+  - "swiggy"
+  - "zomato"
+  - "paytm"
+  - "phonepe"
+  - "razorpay"
+  - "cred"
+  - "meesho"
+  - "myntra"
+  - "dream11"
+  - "ola"
+  - "oyo"
+  - "byju"
+  - "unacademy"
+  - "vedantu"
+  - "upgrad"
+  - "groww"
+  - "zerodha"
+  - "urban company"
+  - "urbancompany"
+  - "dunzo"
+  - "rapido"
+  - "delhivery"
+  - "blinkit"
+  - "zepto"
+  - "bigbasket"
+  - "cars24"
+  - "spinny"
+  - "lenskart"
+  - "mamaearth"
+  - "boat"
+  - "sharechat"
+  - "mobikwik"
+  - "acko"
+  - "policybazaar"
+  - "nykaa"
+  - "purplle"
+  - "licious"
+  - "udaan"
+  - "khatabook"
+  - "vahan"
+  - "porter"
+  # Indian conglomerates with strong tech arms
+  - "tata digital"
+  - "tata cliq"
+  - "jio"
+  - "reliance"
+  # Global tech with India presence
+  - "atlassian"
+  - "intuit"
+  - "oracle"
+  - "sap"
+  - "vmware"
+  - "servicenow"
+  - "workday"
+  - "cisco"
+  - "dell"
+  - "ibm"
+  - "paypal"
+  - "visa"
+  - "mastercard"
+  - "american express"
+  - "amex"
+  - "booking"
+  - "expedia"
+  - "spotify"
+  - "tiktok"
+  - "bytedance"
+  - "twitter"
+  - "x corp"
+  - "slack"
+  - "dropbox"
+  - "shopify"
+  - "stripe"
+  - "twilio"
+  - "samsung"
 
 search:
-  # Keywords searched per portal, grouped by priority.
-  # Higher priority roles get a scoring boost in matching.
+  # ── KEYWORDS — APM/PM only ──
+  # Project/Program Manager intentionally excluded from search keywords:
+  # they're allowed only at big-brand companies, gated post-sourcing.
   keywords:
-    # Priority 1: Product Management (core target)
+    - "Associate Product Manager"
+    - "APM"
     - "Product Manager"
-    - "Senior Product Manager"
-    - "Group Product Manager"
-    - "Product Owner"
-    # Priority 2: Program/Project Management at tech companies
-    - "Program Manager"
-    - "Technical Program Manager"
+    - "Junior Product Manager"
 
   # Role priority tiers — matching agent boosts score for higher-priority fits
   role_priority:
     tier1:  # Best fit
+      - "associate product manager"
+      - "apm"
       - "product manager"
-      - "senior product manager"
-      - "group product manager"
-      - "product lead"
-      - "head of product"
-      - "product owner"
     tier2:  # Good fit
-      - "program manager"
-      - "technical program manager"
-      - "senior program manager"
-    tier3:  # Open to
-      - "growth manager"
-      - "business operations"
+      - "junior product manager"
       - "growth product manager"
-      - "chief of staff"
-      - "strategy manager"
-      - "general manager"
+      - "growth pm"
+      - "associate pm"
+    tier3:  # Open to (empty — no Product Analyst per user request)
+      - "consumer pm"
 
-  # Precision-first role scope
+  # Precision-first role scope — only PM core. Project/Program Manager handled
+  # by the big-brand company gate in sourcing (see big_brand_companies above).
   allowed_role_families:
     - "pm_core"
-    - "tpm_pgm"
+
   excluded_title_keywords:
-    - "project manager"
-    - "project lead"
+    # Too senior
+    - "senior"
+    - "sr."
+    - "sr "
+    - "lead"
+    - "principal"
+    - "staff"
+    - "head of"
+    - "director"
+    - "vp"
+    - "chief"
+    - "group product manager"
+    - "gpm"
+    # Wrong family per user's instruction
+    - "product analyst"
+    - "business analyst"
+    - "data analyst"
     - "scrum master"
-    - "business operations"
-    - "chief of staff"
     - "growth manager"
     - "growth marketing"
     - "sales"
     - "intern"
     - "fresher"
+    - "trainee"
+    - "product owner"
 
-  locations:                         # Searched in order of preference
+  locations:
     - "Bangalore"
-    - "Hyderabad"
-    - "Gurugram"
   remote_ok: true
-  experience_min: 7                  # Minimum years you're targeting
-  experience_max: 13                 # Maximum years you're targeting
-  experience_buffer: 2               # Accept jobs ±2 years outside range (5-7 and 13-15 qualify)
-  max_results_per_portal: 75         # Increased for 3 pages
-  pages_per_search: 3                # How many pages to scrape per keyword+location combo
-  max_age_days: 15                   # Only source jobs posted within this many days
+
+  # HARD experience filter — no buffer
+  experience_min: 0
+  experience_max: 3
+  experience_buffer: 0
+
+  max_results_per_portal: 75
+  pages_per_search: 3
+  max_age_days: 15
 
 portals:
   linkedin:
@@ -141,7 +243,7 @@ portals:
     enabled: true
     base_url: "https://wellfound.com/jobs"
   whatsapp:
-    enabled: false               # Phase 2
+    enabled: false
     group_names:
       - "PM Job's"
       - "HireWire Job Alerts"
@@ -151,99 +253,141 @@ portals:
 
 matching:
   precision_mode: "high_precision"
-  shortlist_threshold: 70        # Lead gen only for scores >= this
-  sheet_min_score: 60            # Precision-first sheet projection threshold
+  shortlist_threshold: 65        # Lower than 70 — fewer perfect matches at APM level
+  sheet_min_score: 45            # Lower threshold to capture borderline good companies
   max_shortlist_per_day: 20
   weights:
     required_skills: 0.25
     preferred_skills: 0.10
     experience: 0.15
     location: 0.10
-    domain: 0.25                 # Domain + work-pattern fit is THE differentiator
+    domain: 0.25
     role_fit: 0.15
   mandatory_skill_cap: 55
 
-  # ── RESUME MATCH SIGNALS ──
-  # Phrases from YOUR actual resume/work. When found in a JD, they indicate
-  # the job needs the type of work you've actually done. Scored as positive signals.
+  # ── RESUME MATCH SIGNALS — Ayushi's actual work ──
   resume_signals:
-    # Marketplace dynamics (your core for 12 years)
-    - "marketplace"
-    - "two-sided"
-    - "two sided"
-    - "supply and demand"
-    - "supply side"
-    - "demand side"
-    - "vendor management"
-    - "partner management"
-    - "seller"
-    - "matchmaking"
-    - "booking"
-    - "order management"
+    # Search & discovery products (her core)
+    - "search"
+    - "image search"
+    - "results page"
+    - "discovery"
+    - "indexation"
+    - "seo"
+    - "organic traffic"
+    - "ctr"
+    - "click-through"
+    - "click through"
+    - "categorization"
+    - "taxonomy"
 
-    # Consumer/mobile product
+    # Funnel / conversion / growth
+    - "funnel"
+    - "conversion"
+    - "lead generation"
+    - "lead conversion"
+    - "cro"
+    - "a/b testing"
+    - "ab testing"
+    - "experimentation"
+    - "retention"
+    - "engagement"
+    - "growth"
+    - "drop-off"
+    - "drop off"
+    - "bounce rate"
+
+    # APM / early-career patterns
+    - "0 to 1"
+    - "0-to-1"
+    - "zero to one"
+    - "mvp"
+    - "prd"
+    - "wireframing"
+    - "wireframe"
+    - "user research"
+    - "user journey"
+    - "journey mapping"
+    - "design sprint"
+    - "user interview"
+    - "user-centric"
+    - "user-segment"
+    - "user segment"
+
+    # Consumer / B2C
     - "consumer"
     - "mobile app"
     - "app product"
     - "dau"
     - "mau"
-    - "user acquisition"
-    - "user engagement"
-    - "retention"
-    - "churn"
-    - "nps"
+    - "consumer-facing"
 
-    # Growth & monetization (your strengths)
-    - "growth"
-    - "p&l"
-    - "pnl"
-    - "unit economics"
-    - "pricing"
-    - "monetization"
-    - "revenue"
-    - "gtm"
-    - "go-to-market"
-    - "0 to 1"
-    - "zero to one"
-    - "0-to-1"
+    # Marketplace / seller-side / classifieds (her Justdial domain)
+    - "marketplace"
+    - "seller"
+    - "vendor"
+    - "classifieds"
+    - "listing"
+    - "b2b platform"
+    - "merchant"
+    - "supplier"
+    - "partner"
+    - "two-sided"
 
-    # Platform & architecture (your JD work)
-    - "platform"
-    - "api"
-    - "self-serve"
-    - "self serve"
-    - "scalab"
+    # Data & analytics (her strength from Product Analyst + Data Scientist roles)
+    - "dashboards"
+    - "dashboard"
+    - "analytics"
+    - "sql"
+    - "power bi"
+    - "google analytics"
+    - "data-driven"
+    - "data driven"
+    - "automated alerts"
+    - "metrics"
+    - "kpi"
+    - "okr"
 
-    # AI/ML (your recent differentiator)
-    - "ai product"
-    - "llm"
-    - "genai"
-    - "machine learning"
-    - "search"
+    # AI / automation (recent JD work)
+    - "ai for"
+    - "product enrichment"
+    - "automation"
+    - "ml"
+    - "personalization"
+    - "recommendation"
 
-    # Local services / on-demand (your domain)
-    - "local"
-    - "hyperlocal"
-    - "on-demand"
-    - "on demand"
-    - "home services"
-    - "gig"
-    - "e-commerce"
-    - "ecommerce"
+    # Tools she actually uses
+    - "jira"
+    - "figma"
+    - "miro"
+    - "stitch"
 
-  # ── DISQUALIFYING SIGNALS ──
-  # Phrases that indicate the role needs deep domain expertise you DON'T have.
-  # If 2+ disqualifiers appear and 0 resume signals, the job is a bad fit.
+  # ── DISQUALIFYING SIGNALS — APM-level: senior asks + deep domain expertise ──
   disqualifiers:
-    - "enterprise sales experience"
-    - "saas sales"
-    - "b2b saas experience"
-    - "enterprise customer"
-    - "large account"
+    # Senior-level requirements
+    - "5+ years"
+    - "6+ years"
+    - "7+ years"
+    - "8+ years"
+    - "10+ years"
+    - "minimum 5 years"
+    - "minimum 6 years"
+    - "minimum 7 years"
+    - "minimum 8 years"
+    - "manage product managers"
+    - "lead a team of pms"
+    - "lead a team of product"
+    - "head of product"
+    - "vp of product"
+    - "product leader"
+    - "ipo experience"
+    - "scaled to billions"
+    - "p&l ownership"
+
+    # Domain depth she lacks
     - "core banking"
     - "banking domain"
     - "lending platform"
-    - "loan"
     - "underwriting"
     - "insurance product"
     - "claims management"
@@ -251,9 +395,6 @@ matching:
     - "soc 2"
     - "hipaa"
     - "pci dss"
-    - "developer tools"
-    - "developer experience"
-    - "sdk"
     - "embedded system"
     - "firmware"
     - "semiconductor"
@@ -265,13 +406,17 @@ matching:
     - "supply chain management"
     - "procurement"
     - "erp implementation"
-    - "crm platform"
-    - "salesforce"
+    - "salesforce admin"
     - "wealth management"
     - "asset management"
 
+    # Sales-heavy or non-PM roles
+    - "enterprise sales experience"
+    - "saas sales"
+    - "outbound sales"
+    - "quota carrying"
+
   # ── DOMAIN CATEGORIES ──
-  # Broader company-level domain signals (secondary to resume/disqualifier signals)
   domain_preferences:
     strong_fit:
       - "marketplace"
@@ -280,11 +425,8 @@ matching:
       - "e-commerce"
       - "ecommerce"
       - "platform"
-      - "local services"
-      - "home services"
-      - "hyperlocal"
-      - "on-demand"
-      - "gig economy"
+      - "search"
+      - "discovery"
       - "classifieds"
       - "aggregator"
       - "digital media"
@@ -293,6 +435,13 @@ matching:
       - "entertainment"
       - "mobile"
       - "app"
+      - "gaming"
+      - "b2b platform"
+      - "b2b marketplace"
+      - "seller"
+      - "merchant"
+      - "local services"
+      - "home services"
     moderate_fit:
       - "fintech"
       - "payments"
@@ -306,15 +455,14 @@ matching:
       - "real estate"
       - "proptech"
       - "healthtech"
-      - "gaming"
       - "adtech"
       - "advertising"
       - "startup"
       - "ai"
       - "machine learning"
       - "genai"
+      - "b2b saas"           # Moved from weak — she has B2B platform exposure
     weak_fit:
-      - "b2b saas"
       - "enterprise software"
       - "erp"
       - "crm"
@@ -333,7 +481,7 @@ matching:
       - "hardware"
       - "iot"
 
-  # Supplementary context file (your PM stories for richer matching)
+  # Supplementary context file (PM stories for richer matching)
   stories_file: "./data/stories.md"
 
 lead_gen:
@@ -341,9 +489,8 @@ lead_gen:
   search_roles:
     - "Recruiter"
     - "Talent Acquisition"
-    - "Engineering Manager"
     - "HR"
-  delay_between_searches_s: [5, 8]  # Random range
+  delay_between_searches_s: [5, 8]
 
 resume:
   path: "./data/resume.pdf"
@@ -354,5 +501,5 @@ output:
 
 blacklist:
   companies: []
-  title_keywords: ["intern", "fresher", "unpaid"]
+  title_keywords: ["intern", "fresher", "unpaid", "trainee"]
   min_experience_years: 0
