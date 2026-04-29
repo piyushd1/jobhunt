@@ -24,6 +24,10 @@ data/job_hunt.db
 data/candidate_profile.json
 data/output/
 data/chroma/
+data/piyush_backup/
+
+# Project context for Claude (local only)
+CLAUDE.md
 
 # IDE
 .vscode/
