@@ -29,6 +29,9 @@ data/piyush_backup/
 # Project context for Claude (local only)
 CLAUDE.md
 
+# Per-user candidate-specific config (written by `python -m src init`)
+config.local.yaml
+
 # IDE
 .vscode/
 .idea/

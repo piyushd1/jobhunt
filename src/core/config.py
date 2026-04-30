@@ -1,4 +1,14 @@
-"""Configuration loader — merges config.yaml with .env secrets."""
+"""Configuration loader — merges config.yaml with optional config.local.yaml + .env secrets.
+
+Layering (each step overrides the previous):
+  1. config.yaml         — generic template (committed; structural defaults)
+  2. config.local.yaml   — per-user overlay written by `python -m src init` (gitignored)
+  3. .env variables      — secrets and credentials
+
+If config.local.yaml is absent, the base config.yaml is used as-is. Lists in
+the overlay REPLACE base lists (they are not concatenated) so users have
+clean control over keywords / signals / etc.
+"""
 
 import os
 from pathlib import Path
@@ -8,8 +18,29 @@ import yaml
 from dotenv import load_dotenv
 
 
-def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> dict[str, Any]:
-    """Load config.yaml and overlay environment variables from .env."""
+def _deep_merge(base: dict, overlay: dict) -> dict:
+    """Recursively merge `overlay` into `base`.
+
+    Dict values are merged recursively. Any non-dict value in `overlay`
+    replaces the value in `base` outright (this includes lists — they are
+    REPLACED, not concatenated, so users have full control).
+    """
+    result = dict(base)
+    for key, overlay_val in overlay.items():
+        base_val = result.get(key)
+        if isinstance(base_val, dict) and isinstance(overlay_val, dict):
+            result[key] = _deep_merge(base_val, overlay_val)
+        else:
+            result[key] = overlay_val
+    return result
+
+
+def load_config(
+    config_path: str = "config.yaml",
+    local_config_path: str = "config.local.yaml",
+    env_path: str = ".env",
+) -> dict[str, Any]:
+    """Load config.yaml, layer config.local.yaml on top, then overlay .env vars."""
     load_dotenv(env_path)
 
     config_file = Path(config_path)
@@ -17,7 +48,15 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> dic
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
     with open(config_file) as f:
-        config = yaml.safe_load(f)
+        config = yaml.safe_load(f) or {}
+
+    # Layer in config.local.yaml if present (per-user overlay)
+    local_file = Path(local_config_path)
+    if local_file.exists():
+        with open(local_file) as f:
+            overlay = yaml.safe_load(f) or {}
+        if overlay:
+            config = _deep_merge(config, overlay)
 
     # Overlay env vars into config
     config.setdefault("llm", {})

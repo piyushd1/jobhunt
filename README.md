@@ -19,7 +19,7 @@ Resume Profile ──> Source Jobs ──> Parse JDs ──> Match & Score ─�
 6. **Drafts referral-focused outreach** — personalized LinkedIn notes and emails using your actual project stories
 7. **Writes to Google Sheets** — sorted by match score, with all links, scores, contacts, and drafts
 
-## Quick Start
+## Quick Start (5 minutes)
 
 ### Prerequisites
 
@@ -28,67 +28,53 @@ Resume Profile ──> Source Jobs ──> Parse JDs ──> Match & Score ─�
 - API keys for at least one LLM provider (OpenRouter, Groq, OpenAI, or Anthropic)
 - Google Cloud service account with Sheets API enabled
 
-### 1. Clone and Install
+### Setup
 
 ```bash
+# 1. Clone + install
 git clone https://github.com/piyushd1/jobhunt.git
 cd jobhunt
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 playwright install chromium
-```
 
-### 2. Configure
-
-```bash
+# 2. Secrets
 cp .env.example .env
-```
+# → fill in OPENROUTER_API_KEY (or GROQ/OPENAI), GOOGLE_CREDENTIALS_PATH, GOOGLE_SHEET_ID
 
-Edit `.env` with your API keys:
-
-```env
-OPENROUTER_API_KEY=sk-or-...
-GROQ_API_KEY=gsk_...
-GOOGLE_CREDENTIALS_PATH=./credentials/your-service-account.json
-GOOGLE_SHEET_ID=your-google-sheet-id
-```
-
-Place your Google service account JSON in `credentials/` and share the Google Sheet with the service account email (Editor access).
-
-Edit `config.yaml` to set your search preferences (keywords, locations, experience range, etc.).
-
-### 3. Set Up Browser Sessions
-
-```bash
-python setup_browser.py
-```
-
-This opens a Chromium browser with a dedicated profile. Log into each portal (LinkedIn, Naukri, etc.) when prompted. Sessions are saved and reused across runs.
-
-### 4. Add Your Resume
-
-```bash
+# 3. Drop your resume in
 cp /path/to/your/resume.pdf data/resume.pdf
+
+# 4. Interactive wizard — parses resume, asks 5 questions, auto-derives
+#    candidate-specific config (resume signals, disqualifiers, domain
+#    preferences, big-brand list, excluded titles, role priority)
+python -m src init
+
+# 5. Log into each portal (one-time)
+python -m src setup
+
+# 6. Hunt
+python -m src hunt
 ```
 
-Optionally, add a PM stories/projects file for richer matching:
+The wizard writes `config.local.yaml` (gitignored) with everything tuned to your background. You can edit it later by hand or re-run `python -m src init` to regenerate.
 
-```bash
-cp /path/to/your/stories.md data/stories.md
-```
+### How configuration works
 
-### 5. Run
+| File | Tracked? | Contents |
+|---|---|---|
+| `config.yaml` | Yes (committed) | Generic defaults: portals, models, weights, pipeline settings |
+| `config.local.yaml` | No (gitignored) | Your candidate-specific overrides — written by `init` |
+| `.env` | No | API keys, Google creds, Sheet ID |
+| `data/resume.pdf` | No | Your resume PDF |
 
-```bash
-python -m src hunt          # Incremental run (keeps existing data)
-python -m src hunt fresh    # Full fresh run (nukes DB, starts clean)
-```
+`config.local.yaml` overrides anything in `config.yaml`. Lists in the overlay replace base lists (no concatenation). See `config.local.yaml.example` for the full list of overridable keys.
 
 ## CLI Commands
 
 | Command | What it does |
 |---|---|
+| `python -m src init` | Interactive wizard — parses resume + writes `config.local.yaml` |
 | `python -m src hunt` | Run the full pipeline (incremental) |
 | `python -m src hunt fresh` | Nuke DB + fresh run from scratch |
 | `python -m src setup` | Re-open browser for portal logins |

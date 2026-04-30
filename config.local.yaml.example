@@ -1,0 +1,104 @@
+# config.local.yaml — per-user candidate-specific overlay
+# ----------------------------------------------------------
+# This file is gitignored. It overrides anything in config.yaml.
+# Lists REPLACE base lists (they are NOT concatenated).
+#
+# Recommended way to generate this file: run
+#     python -m src init
+# The wizard parses your resume, asks 5 short questions, and writes
+# this file with auto-derived signals/disqualifiers/domains.
+#
+# You can also write it by hand using this example as a starting point.
+
+search:
+  # Job titles to search across portals.
+  keywords:
+    - "Product Manager"
+    - "Senior Product Manager"
+
+  # Cities to search (Remote is added automatically if remote_ok=true in base).
+  locations:
+    - "Bangalore"
+    - "Hyderabad"
+
+  remote_ok: true
+
+  # HARD experience filter (no buffer). Matched against parsed JD ranges.
+  experience_min: 3
+  experience_max: 7
+  experience_buffer: 0
+
+  # Tier 1 = best fit for your level. Tier 2 = adjacent. Tier 3 = stretch.
+  role_priority:
+    tier1: ["product manager", "senior product manager"]
+    tier2: ["growth product manager", "consumer pm"]
+    tier3: []
+
+  # Titles to skip outright (too senior, wrong family, etc.).
+  excluded_title_keywords:
+    - "lead"
+    - "principal"
+    - "director"
+    - "vp"
+    - "head of"
+    - "intern"
+
+# Companies where Project/Program Manager titles are still acceptable.
+# All other companies' Project/Program Manager listings are filtered out.
+big_brand_companies:
+  - "google"
+  - "amazon"
+  - "microsoft"
+  - "flipkart"
+  - "swiggy"
+  - "razorpay"
+  # ... add ~50-100 entries; see init wizard output for a richer default list.
+
+matching:
+  shortlist_threshold: 65
+  sheet_min_score: 45
+
+  # Phrases lifted from your actual resume — finding them in a JD signals
+  # the role needs work patterns you've actually done. Drives the domain score.
+  resume_signals:
+    - "marketplace"
+    - "consumer"
+    - "growth"
+    - "p&l"
+    - "0 to 1"
+    # ... 30-50 phrases is typical
+
+  # Phrases that indicate the JD needs expertise you DON'T have. If 2+ of
+  # these appear and 0 resume signals do, the job is hard-rejected (~5% domain).
+  disqualifiers:
+    - "10+ years"
+    - "manage product managers"
+    - "core banking"
+    - "embedded systems"
+    - "firmware"
+    # ... 20-30 entries
+
+  # Broader company-domain classification — secondary signal.
+  domain_preferences:
+    strong_fit:
+      - "marketplace"
+      - "consumer"
+      - "b2c"
+      - "e-commerce"
+    moderate_fit:
+      - "fintech"
+      - "edtech"
+      - "food delivery"
+    weak_fit:
+      - "b2b saas"
+      - "enterprise software"
+      - "core banking"
+      - "hardware"
+
+# Optional: override lead-gen targets if you want different recruiter searches.
+# Leave commented to use the base config.yaml defaults (Recruiter / TA / HR).
+# lead_gen:
+#   search_roles:
+#     - "Recruiter"
+#     - "Talent Acquisition"
+#     - "HR"

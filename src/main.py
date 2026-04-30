@@ -1,24 +1,29 @@
 """CLI entry point for the Job Hunt Agent.
 
-Usage:
+Quick start (new user):
+    python -m src init                          # Interactive setup wizard
+    python -m src setup                         # Log into portals (one-time)
+    python -m src hunt                          # Run the pipeline
+
+All commands:
+    python -m src init                          # Wizard: parse resume, write config.local.yaml
     python -m src hunt                          # Run the full pipeline (incremental)
     python -m src hunt fresh                    # Nuke DB + fresh run from scratch
     python -m src reset scores                  # Reset match scores only (re-score)
-    python -m src eval_matches                  # Run LLM to evaluate match scoring logic
-
     python -m src reset all                     # Nuke entire DB (full fresh start)
     python -m src setup                         # Open browser for portal logins
     python -m src status                        # Show job counts in DB
     python -m src models                        # Show configured LLM models per agent
     python -m src metrics                       # Show agent performance from last run
     python -m src metrics all                   # Show all historical runs
-    python -m src blacklist add company Acme    # Block a company
-    python -m src blacklist add keyword intern  # Block a title keyword
-    python -m src blacklist show                # Show all blacklist entries
-    python -m src blacklist remove <id>         # Remove a blacklist entry
     python -m src config                        # Show current search config
     python -m src config exp 7 13               # Set experience filter (7-13 years)
     python -m src config exp off                # Disable experience filter
+    python -m src blacklist show                # Show all blacklist entries
+    python -m src blacklist add company Acme    # Block a company
+    python -m src blacklist add keyword intern  # Block a title keyword
+    python -m src blacklist remove <id>         # Remove a blacklist entry
+    python -m src eval_matches                  # Run LLM to evaluate match scoring logic
 """
 
 import asyncio
@@ -81,6 +86,215 @@ def _patch_asyncio_ssl_cleanup():
                 pass
 
     asyncio.run = _patched_run
+
+
+def cmd_init():
+    """Interactive wizard: parse resume, prompt 5 questions, write config.local.yaml.
+
+    Generates the candidate-specific overlay (search keywords, locations,
+    experience range, role priority, resume signals, disqualifiers, domain
+    preferences, big-brand list, excluded title keywords) by combining the
+    parsed resume with short user inputs and a single LLM call.
+    """
+    import shutil
+    from datetime import datetime
+    from pathlib import Path
+
+    import yaml
+    from rich.panel import Panel
+    from rich.prompt import Confirm, Prompt
+
+    from src.agents.config_deriver import ConfigDeriver
+    from src.agents.resume_profiler import ResumeProfiler
+    from src.core.embeddings import EmbeddingModel
+
+    _patch_asyncio_ssl_cleanup()
+
+    config = load_config()
+    llm = LLMClient(config)
+
+    console.print(Panel.fit(
+        "[bold cyan]Job Hunt Agent — Setup Wizard[/]\n\n"
+        "Will parse your resume, ask a few short questions, and write\n"
+        "a candidate-specific [bold]config.local.yaml[/] (gitignored).",
+        border_style="cyan",
+    ))
+
+    async def run_wizard():
+        # ── Step 1: Resume path ─────────────────────────────────────
+        resume_default = config.get("resume", {}).get("path", "./data/resume.pdf")
+        resume_default_p = Path(resume_default)
+        existing = resume_default_p.exists()
+        prompt_msg = (
+            f"Path to your resume PDF [{resume_default}]"
+            if existing
+            else f"Path to your resume PDF (will be copied to {resume_default})"
+        )
+        resume_input = Prompt.ask(prompt_msg, default=resume_default).strip()
+        resume_path = Path(resume_input).expanduser().resolve()
+        if not resume_path.exists():
+            console.print(f"[red]Resume not found: {resume_path}[/]")
+            return
+
+        # Copy to data/resume.pdf if needed
+        if str(resume_path) != str(resume_default_p.resolve()):
+            resume_default_p.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(str(resume_path), str(resume_default_p))
+            console.print(f"[green]Copied resume → {resume_default}[/]")
+
+        # ── Backup existing config.local.yaml + cached profile ─────
+        local_path = Path("config.local.yaml")
+        cache_path = Path(config.get("resume", {}).get("profile_cache",
+                                                        "./data/candidate_profile.json"))
+        chroma_dir = Path(config.get("output", {}).get("chroma_dir", "./data/chroma"))
+        archive_dir = Path(f"./data/_archive/{datetime.now().strftime('%Y%m%d-%H%M%S')}")
+        if local_path.exists() or cache_path.exists() or chroma_dir.exists():
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            for src in (local_path, cache_path):
+                if src.exists():
+                    shutil.copy(str(src), str(archive_dir / src.name))
+            if chroma_dir.exists():
+                shutil.copytree(str(chroma_dir), str(archive_dir / "chroma"),
+                                dirs_exist_ok=True)
+            console.print(f"[dim]Backed up previous setup to {archive_dir}[/]")
+
+        # Force fresh resume parse + chroma rebuild
+        if cache_path.exists():
+            cache_path.unlink()
+        if chroma_dir.exists():
+            shutil.rmtree(chroma_dir)
+
+        # ── Step 2: Run resume profiler ─────────────────────────────
+        console.print("\n[bold]Parsing resume...[/] (this can take ~60s with the LLM)")
+        emb = EmbeddingModel(config)
+        profiler = ResumeProfiler(config, llm, embedding_model=emb)
+        result = await profiler.run()
+        if not result.success:
+            console.print(f"[red]Resume parse failed: {result.errors}[/]")
+            return
+        profile = result.data
+
+        skills_count = len(profile.get("all_skills_canonical", []))
+        years = profile.get("total_experience_years", "?")
+        console.print(
+            f"[green]Parsed:[/] [bold]{profile.get('name','(unknown)')}[/] — "
+            f"{profile.get('current_title','')} ({years} yrs, {skills_count} skills)"
+        )
+
+        # ── Step 3: User inputs (with prefills from parsed profile) ─
+        console.print("\n[bold]Job-hunt preferences[/] (press Enter to accept defaults)")
+
+        # Target keywords — prefill from current_title + target_roles
+        prefill_keywords = []
+        if profile.get("current_title"):
+            prefill_keywords.append(profile["current_title"])
+        for tr in profile.get("target_roles", []):
+            if tr not in prefill_keywords:
+                prefill_keywords.append(tr)
+        if not prefill_keywords:
+            prefill_keywords = ["Product Manager"]
+        kw_default = ", ".join(prefill_keywords[:6])
+        kw_input = Prompt.ask("Target role keywords (comma-separated)", default=kw_default)
+        target_keywords = [k.strip() for k in kw_input.split(",") if k.strip()]
+
+        # Locations — prefill from preferred_locations
+        loc_default = ", ".join(profile.get("preferred_locations") or ["Bangalore"])
+        loc_input = Prompt.ask("Locations to search (comma-separated)", default=loc_default)
+        locations = [l.strip() for l in loc_input.split(",") if l.strip()]
+
+        # Remote OK
+        remote_ok = Confirm.ask("Open to remote roles?", default=True)
+
+        # Experience range — prefill ± 1 around parsed years
+        try:
+            yint = int(years) if isinstance(years, (int, float, str)) else 5
+        except (TypeError, ValueError):
+            yint = 5
+        emin_default = max(0, yint - 1)
+        emax_default = yint + 1
+        emin = int(Prompt.ask("Minimum years of experience to consider",
+                               default=str(emin_default)))
+        emax = int(Prompt.ask("Maximum years of experience to consider",
+                               default=str(emax_default)))
+
+        # Sheet ID
+        sheet_default = config.get("sheets", {}).get("sheet_id") or ""
+        sheet_id = Prompt.ask(
+            "Google Sheet ID (leave blank if you'll set GOOGLE_SHEET_ID in .env)",
+            default=sheet_default,
+        ).strip()
+
+        user_inputs = {
+            "target_keywords": target_keywords,
+            "locations": locations,
+            "remote_ok": remote_ok,
+            "experience_min": emin,
+            "experience_max": emax,
+        }
+
+        # ── Step 4: Auto-derive ─────────────────────────────────────
+        console.print("\n[bold]Auto-deriving search config from resume...[/] "
+                       "(single LLM call, ~30-90s)")
+        deriver = ConfigDeriver(config, llm)
+        derived = await deriver.derive(profile, user_inputs)
+
+        # ── Step 5: Write config.local.yaml ─────────────────────────
+        local_doc = {
+            "search": {
+                "keywords": target_keywords,
+                "locations": locations,
+                "remote_ok": remote_ok,
+                "experience_min": emin,
+                "experience_max": emax,
+                "experience_buffer": 0,
+                "role_priority": derived["role_priority"],
+                "excluded_title_keywords": derived["excluded_title_keywords"],
+            },
+            "big_brand_companies": derived["big_brand_companies"],
+            "matching": {
+                "resume_signals": derived["resume_signals"],
+                "disqualifiers": derived["disqualifiers"],
+                "domain_preferences": derived["domain_preferences"],
+            },
+        }
+        if sheet_id:
+            local_doc["sheets"] = {"sheet_id": sheet_id}
+
+        with open(local_path, "w") as f:
+            f.write(f"# config.local.yaml — generated by `python -m src init` on "
+                    f"{datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
+            f.write("# Candidate-specific overrides for config.yaml. Re-run init to regenerate.\n\n")
+            yaml.safe_dump(local_doc, f, default_flow_style=False, sort_keys=False,
+                            allow_unicode=True)
+        console.print(f"\n[green]Wrote {local_path}[/]")
+        console.print(
+            f"  resume_signals:    {len(derived['resume_signals'])} entries\n"
+            f"  disqualifiers:     {len(derived['disqualifiers'])} entries\n"
+            f"  domain strong:     {len(derived['domain_preferences']['strong_fit'])} entries\n"
+            f"  big-brand list:    {len(derived['big_brand_companies'])} companies\n"
+            f"  excluded titles:   {len(derived['excluded_title_keywords'])} entries"
+        )
+
+        # ── Step 6: Next steps ──────────────────────────────────────
+        env_path = Path(".env")
+        env_ok = env_path.exists()
+        next_steps = (
+            "[bold]Next steps[/]\n\n"
+            f"  {'✓' if env_ok else '☐'} .env file present"
+            f" (fill in API keys + Google credentials if not done)\n"
+            f"  ☐ Share the Google Sheet with your service account email (Editor access)\n"
+            f"  ☐ Run [cyan]python -m src setup[/] to log into job portals (one-time)\n"
+            f"  ☐ Then [cyan]python -m src hunt[/] to start the pipeline"
+        )
+        console.print(Panel(next_steps, border_style="green"))
+
+    try:
+        asyncio.run(run_wizard())
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Wizard cancelled.[/]")
+    except RuntimeError as e:
+        if "Event loop is closed" not in str(e):
+            raise
 
 
 def cmd_reset():
@@ -527,6 +741,7 @@ def main():
 
     command = sys.argv[1].lower()
     commands = {
+        "init": cmd_init,
         "hunt": cmd_hunt,
         "reset": cmd_reset,
         "config": cmd_config,
