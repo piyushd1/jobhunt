@@ -1,6 +1,7 @@
 """Portal adapter registry — maps portal names to adapter classes."""
 
 from src.portals.linkedin import LinkedInAdapter
+from src.portals.linkedin_posts import LinkedInPostsAdapter
 from src.portals.naukri import NaukriAdapter
 from src.portals.foundit import FounditAdapter
 from src.portals.indeed import IndeedAdapter
@@ -11,6 +12,7 @@ from src.portals.wellfound import WellfoundAdapter
 # Add new adapters here as they're built
 PORTAL_REGISTRY: dict[str, type] = {
     "linkedin": LinkedInAdapter,
+    "linkedin_posts": LinkedInPostsAdapter,
     "naukri": NaukriAdapter,
     "foundit": FounditAdapter,
     "indeed": IndeedAdapter,

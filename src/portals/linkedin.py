@@ -168,6 +168,40 @@ class LinkedInAdapter(PortalAdapter):
             source="LinkedIn",
         )
 
+    def _experience_filter(self) -> str:
+        """Map our experience_min/max to LinkedIn's f_E levels.
+
+        LinkedIn experience levels (f_E):
+          1 = Internship   (~0 yrs)
+          2 = Entry level  (0-2 yrs)
+          3 = Associate    (2-5 yrs)
+          4 = Mid-Senior   (5-10 yrs)
+          5 = Director     (10-15 yrs)
+          6 = Executive    (15+ yrs)
+
+        Returns "&f_E=2&f_E=3" style. Empty string if not configured.
+        """
+        emin = self.search_config.get("experience_min")
+        emax = self.search_config.get("experience_max")
+        if emin is None or emax is None:
+            return ""
+
+        # LinkedIn level → year range it represents (overlap-friendly)
+        level_ranges = {
+            1: (0, 1),
+            2: (0, 2),
+            3: (2, 5),
+            4: (5, 10),
+            5: (10, 15),
+            6: (15, 99),
+        }
+        chosen = []
+        for level, (lo, hi) in level_ranges.items():
+            # Overlap test between [emin, emax] and [lo, hi]
+            if lo <= emax and hi >= emin:
+                chosen.append(level)
+        return "".join(f"&f_E={lvl}" for lvl in chosen)
+
     def _build_search_url(self, keyword: str, location: str, page_num: int = 0) -> str:
         """Build LinkedIn jobs search URL with date filter and pagination.
 
@@ -185,11 +219,13 @@ class LinkedInAdapter(PortalAdapter):
         # Convert max_age_days to seconds for LinkedIn's f_TPR parameter
         age_seconds = self.max_age_days * 86400
         start = page_num * 25  # LinkedIn shows 25 results per page
+        exp_filter = self._experience_filter()
         if is_remote:
             return (
                 f"{self.base_url}?keywords={encoded_keyword}"
                 f"&location=India"          # broad geo so LinkedIn returns results
                 f"&f_WT=2"                  # workplace type: Remote
+                f"{exp_filter}"             # experience level filter
                 f"&sortBy=DD"
                 f"&f_TPR=r{age_seconds}"
                 f"&start={start}"
@@ -198,6 +234,7 @@ class LinkedInAdapter(PortalAdapter):
         return (
             f"{self.base_url}?keywords={encoded_keyword}"
             f"&location={encoded_location}"
+            f"{exp_filter}"
             f"&sortBy=DD"
             f"&f_TPR=r{age_seconds}"
             f"&start={start}"

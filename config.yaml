@@ -224,6 +224,9 @@ portals:
   linkedin:
     enabled: true
     base_url: "https://www.linkedin.com/jobs/search/"
+  linkedin_posts:
+    enabled: true
+    base_url: "https://www.linkedin.com/search/results/content/"
   naukri:
     enabled: true
     base_url: "https://www.naukri.com"

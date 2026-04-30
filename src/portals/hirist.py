@@ -28,7 +28,10 @@ class HiristAdapter(PortalAdapter):
     async def scrape(self, page: Page) -> list[RawJob]:
         keywords = self.search_config.get("keywords", [])
         locations = self.get_locations()
-        experience = self.search_config.get("experience_years", 5)
+        experience = self.search_config.get(
+            "experience_min",
+            self.search_config.get("experience_years", 5),
+        )
         jobs: list[RawJob] = []
 
         for location in locations:
@@ -216,10 +219,17 @@ class HiristAdapter(PortalAdapter):
         """
         kw_slug = keyword.lower().replace(" ", "-")
         loc_slug = location.lower().replace(" ", "-")
+        emin = self.search_config.get("experience_min", experience)
+        emax = self.search_config.get("experience_max", experience)
+        # Hirist accepts repeated &experience=N like Naukri
+        exp_params = "".join(
+            f"&experience={y}" for y in range(int(emin), int(emax) + 1)
+        )
         url = (
             f"{self.base_url}/{kw_slug}-jobs-in-{loc_slug}"
             f"?experience={experience}"
-            f"&sort=date"  # Sort by newest first
+            f"{exp_params}"
+            f"&sort=date"
             f"&jobAge={self.max_age_days}"
         )
         if page_num > 0:

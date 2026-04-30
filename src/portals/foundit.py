@@ -197,17 +197,24 @@ class FounditAdapter(PortalAdapter):
         """Build Foundit job search URL with date filter and pagination.
 
         Date filter: recency={days}
-        Pagination: start=0, 15, 30, ... (15 results per page)
+        Pagination: start=0, 15, 30, ...
+        Experience: experience=N-N (years range, comma-separated as min-max)
         """
         encoded_keyword = quote_plus(keyword)
         encoded_location = quote_plus(location)
-        start = page_num * 15  # Foundit shows 15 results per page
+        start = page_num * 15
+        emin = self.search_config.get("experience_min")
+        emax = self.search_config.get("experience_max")
+        exp_param = ""
+        if emin is not None and emax is not None:
+            exp_param = f"&experience={emin}~{emax}"
         return (
             f"{self.base_url}/srp/results"
             f"?searchId=&query={encoded_keyword}"
             f"&locations={encoded_location}"
-            f"&sort=1"  # Sort by relevance
+            f"&sort=1"
             f"&recency={self.max_age_days}"
+            f"{exp_param}"
             f"&start={start}"
         )
 

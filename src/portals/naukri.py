@@ -170,9 +170,16 @@ class NaukriAdapter(PortalAdapter):
         """
         kw_slug = keyword.lower().replace(" ", "-")
         loc_slug = location.lower().replace(" ", "-")
+        # Naukri accepts repeated &experience=N for the full range.
+        emin = self.search_config.get("experience_min", experience)
+        emax = self.search_config.get("experience_max", experience)
+        exp_params = "".join(
+            f"&experience={y}" for y in range(int(emin), int(emax) + 1)
+        )
         url = (
             f"{self.base_url}/{kw_slug}-jobs-in-{loc_slug}"
-            f"?experience={experience}"
+            f"?experience={experience}"           # legacy single value (kept for compat)
+            f"{exp_params}"                       # full range expansion
             f"&jobAge={self.max_age_days}"
         )
         if page_num > 0:

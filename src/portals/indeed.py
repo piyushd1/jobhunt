@@ -205,21 +205,45 @@ class IndeedAdapter(PortalAdapter):
             source="Indeed",
         )
 
+    def _experience_param(self) -> str:
+        """Map config experience range to Indeed's explvl param.
+
+        Indeed levels:
+          entry_level  ~ 0-2 yrs
+          mid_level    ~ 3-5 yrs
+          senior_level ~ 6+ yrs
+        """
+        emin = self.search_config.get("experience_min")
+        emax = self.search_config.get("experience_max")
+        if emin is None or emax is None:
+            return ""
+        levels = []
+        if emin <= 2:
+            levels.append("entry_level")
+        if 3 <= emax and emin <= 5:
+            levels.append("mid_level")
+        if emax >= 6:
+            levels.append("senior_level")
+        return "".join(f"&explvl={lvl}" for lvl in levels)
+
     def _build_search_url(self, keyword: str, location: str, page_num: int = 0) -> str:
         """Build Indeed India job search URL with date filter and pagination.
 
         Date filter: fromage={days}
         Pagination: start=0, 10, 20, ... (10 results per page)
+        Experience: explvl=entry_level / mid_level / senior_level
         """
         encoded_keyword = quote_plus(keyword)
         encoded_location = quote_plus(location)
-        start = page_num * 10  # Indeed shows 10 results per page
+        start = page_num * 10
+        exp_filter = self._experience_param()
         return (
             f"{self.base_url}/jobs"
             f"?q={encoded_keyword}"
             f"&l={encoded_location}"
-            f"&sort=date"  # Sort by newest first
+            f"&sort=date"
             f"&fromage={self.max_age_days}"
+            f"{exp_filter}"
             f"&start={start}"
         )
 

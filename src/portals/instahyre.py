@@ -219,18 +219,27 @@ class InstahyreAdapter(PortalAdapter):
         )
 
     def _build_search_url(self, keyword: str, location: str) -> str:
-        """Build Instahyre opportunities search URL with date filter.
+        """Build Instahyre opportunities search URL with date + experience filters.
 
         Date filter: posted_days={days}
+        Experience filter: min_exp/max_exp (years)
         Pagination: Instahyre uses infinite scroll, handled via scroll loops in scrape().
         """
         encoded_keyword = quote_plus(keyword)
         encoded_location = quote_plus(location)
+        emin = self.search_config.get("experience_min")
+        emax = self.search_config.get("experience_max")
+        exp_params = ""
+        if emin is not None:
+            exp_params += f"&min_exp={emin}"
+        if emax is not None:
+            exp_params += f"&max_exp={emax}"
         return (
             f"{self.base_url}"
             f"?search={encoded_keyword}"
             f"&location={encoded_location}"
             f"&posted_days={self.max_age_days}"
+            f"{exp_params}"
         )
 
     @staticmethod

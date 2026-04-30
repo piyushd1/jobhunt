@@ -145,15 +145,28 @@ class WellfoundAdapter(PortalAdapter):
         return RawJob(url=url, title=title, company=company, location=location, source="Wellfound")
 
     def _build_search_url(self, keyword: str, location: str) -> str:
-        """Build Wellfound job search URL with date filter.
+        """Build Wellfound job search URL with date + experience filters.
 
         Date filter: datePosted=month (Wellfound only supports broad date filters)
+        Experience: experience=junior (0-2) / mid (3-5) / senior (6+)
         Pagination: Wellfound uses infinite scroll, handled via scroll loops in scrape().
         """
+        emin = self.search_config.get("experience_min")
+        emax = self.search_config.get("experience_max")
+        exp_param = ""
+        if emin is not None and emax is not None:
+            if emax <= 2:
+                exp_param = "&experience=junior"
+            elif emin <= 5 and emax >= 3:
+                # Spans junior+mid or mid only
+                exp_param = "&experience=junior&experience=mid" if emin <= 2 else "&experience=mid"
+            elif emin >= 6:
+                exp_param = "&experience=senior"
         return (
             f"{self.base_url}?role={quote_plus(keyword)}"
             f"&location={quote_plus(location)}"
             f"&datePosted=month"
+            f"{exp_param}"
         )
 
     @staticmethod
