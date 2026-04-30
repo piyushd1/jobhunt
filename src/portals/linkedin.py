@@ -179,10 +179,22 @@ class LinkedInAdapter(PortalAdapter):
         Pagination: start=0, 25, 50, ...
         """
         encoded_keyword = quote_plus(keyword)
-        encoded_location = quote_plus(location)
+        # When location == "Remote", use LinkedIn's remote workplace filter
+        # f_WT=2 (Remote) instead of a geographic location.
+        is_remote = location.strip().lower() == "remote"
         # Convert max_age_days to seconds for LinkedIn's f_TPR parameter
         age_seconds = self.max_age_days * 86400
         start = page_num * 25  # LinkedIn shows 25 results per page
+        if is_remote:
+            return (
+                f"{self.base_url}?keywords={encoded_keyword}"
+                f"&location=India"          # broad geo so LinkedIn returns results
+                f"&f_WT=2"                  # workplace type: Remote
+                f"&sortBy=DD"
+                f"&f_TPR=r{age_seconds}"
+                f"&start={start}"
+            )
+        encoded_location = quote_plus(location)
         return (
             f"{self.base_url}?keywords={encoded_keyword}"
             f"&location={encoded_location}"

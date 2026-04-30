@@ -73,12 +73,25 @@ class PortalAdapter(ABC):
         self.max_age_days = self.search_config.get("max_age_days", 15)
 
     def get_locations(self) -> list[str]:
-        """Get search locations from config. Supports both single and multi-location."""
+        """Get search locations from config. Supports both single and multi-location.
+
+        If `search.remote_ok` is true, "Remote" is appended as an additional
+        search location so each adapter naturally gets a remote-jobs pass.
+        """
         locations = self.search_config.get("locations", [])
-        if locations:
-            return locations
-        single = self.search_config.get("location", "India")
-        return [single] if single else ["India"]
+        if not locations:
+            single = self.search_config.get("location", "India")
+            locations = [single] if single else ["India"]
+
+        # Append "Remote" as an additional pseudo-location when remote_ok=true
+        if self.search_config.get("remote_ok", False):
+            already_remote = any(
+                "remote" in (loc or "").lower() for loc in locations
+            )
+            if not already_remote:
+                locations = list(locations) + ["Remote"]
+
+        return locations
 
     @abstractmethod
     async def scrape(self, page: Page) -> list[RawJob]:
